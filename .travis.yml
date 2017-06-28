@@ -1,12 +1,21 @@
 language: cpp
 
 script:
+  - cd third-party
+  - wget https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz
+  - tar xf openssl-${OPENSSL_VERSION}.tar.gz
+  - cd openssl-${OPENSSL_VERSION}
+  - ./config --openssldir=/etc/ssl
+  - make -j`nproc`
+  - cd ../..
   - mkdir -p build && cd build
-  - cmake -DCMAKE_BUILD_TYPE=Debug ..
+  - cmake -DOPENSSL_ROOT_DIR=${PWD}/../third-party/openssl-${OPENSSL_VERSION} -DCMAKE_BUILD_TYPE=Debug ..
   - make -j`nproc`
   - test/test_verifier
 
-addons:
-  apt:
-    packages:
-      - cmake
+dist: trusty
+
+matrix:
+  include:
+    - env: OPENSSL_VERSION=1.1.0f
+    - env: OPENSSL_VERSION=1.0.2l
