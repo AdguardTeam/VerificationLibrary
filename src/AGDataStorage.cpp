@@ -41,13 +41,13 @@ bool AGSimpleDirectoryStorage::saveData(const std::string &name, const std::stri
 }
 
 bool AGSimpleDirectoryStorage::loadData(const std::string &name, std::string *pOutValue) {
-    std::ifstream dynamicHPKPInfoFile((storagePath + "/" + name).c_str());
-    if (dynamicHPKPInfoFile.fail()) {
+    std::ifstream file((storagePath + "/" + name).c_str());
+    if (file.fail()) {
         return false;
     }
     std::ostringstream buffer;
-    buffer << dynamicHPKPInfoFile.rdbuf();
-    if (dynamicHPKPInfoFile.fail()) {
+    buffer << file.rdbuf();
+    if (file.fail()) {
         return false;
     }
     *pOutValue = buffer.str();

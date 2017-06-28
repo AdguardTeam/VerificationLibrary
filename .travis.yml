@@ -1,0 +1,12 @@
+language: cpp
+
+script:
+  - mkdir -p build && cd build
+  - cmake -DCMAKE_BUILD_TYPE=Debug ..
+  - make -j`nproc`
+  - test/test_verifier
+
+addons:
+  apt:
+    packages:
+      - cmake
