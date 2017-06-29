@@ -21,6 +21,7 @@
 #define CERTIFICATE_VERIFIER_AGX509STOREUTILS_H
 
 #include <openssl/x509v3.h>
+#include <openssl/x509_vfy.h>
 
 namespace AGX509StoreUtils {
     /**
@@ -37,8 +38,12 @@ namespace AGX509StoreUtils {
 #if OPENSSL_VERSION_NUMBER < 0x10100000L
         X509_OBJECT obj = {0};
         X509_STORE_get_by_subject(ctx, X509_LU_X509, name, &obj);
-        if (obj.data.x509) {
-            if (X509_cmp(obj.data.x509, cert) == 0) {
+        X509 *storeCert = obj.data.x509;
+        if (storeCert) {
+            if (X509_cmp(storeCert, cert) == 0
+                || (M_ASN1_BIT_STRING_cmp(X509_get0_pubkey_bitstr(storeCert), X509_get0_pubkey_bitstr(cert)) == 0
+                    && storeCert->ex_flags & EXFLAG_SS))
+            {
                 X509_OBJECT_free_contents(&obj);
                 return true;
             }
@@ -46,9 +51,12 @@ namespace AGX509StoreUtils {
         X509_OBJECT_free_contents(&obj);
 #else
         X509_OBJECT *obj = X509_STORE_CTX_get_obj_by_subject(ctx, X509_LU_X509, name);
-        X509 *x509 = X509_OBJECT_get0_X509(obj);
-        if (x509) {
-            if (X509_cmp(x509, cert) == 0) {
+        X509 *storeCert = X509_OBJECT_get0_X509(obj);
+        if (storeCert) {
+            if (X509_cmp(storeCert, cert) == 0
+                || (ASN1_STRING_cmp(X509_get0_pubkey_bitstr(storeCert), X509_get0_pubkey_bitstr(cert)) == 0
+                    && X509_get_extension_flags(storeCert) & EXFLAG_SS))
+            {
                 X509_OBJECT_free(obj);
                 return true;
             }

@@ -111,10 +111,6 @@ AGVerifyResult AGCertificateVerifier::verify(const std::string &dnsName, STACK_O
     if (!res.isOk()) {
         goto finish;
     }
-    res = verifyWeakHashAlgorithm(sortedChain);
-    if (!res.isOk()) {
-        goto finish;
-    }
     res = verifyUntrustedAuthority(sortedChain);
     if (!res.isOk()) {
         goto finish;
@@ -238,10 +234,13 @@ AGVerifyResult AGCertificateVerifier::verifyBasic(X509_STORE *store, STACK_OF(X5
     X509_STORE_CTX_set_chain(ctx, certChain);
     int ret = X509_verify_cert(ctx);
     int error = X509_STORE_CTX_get_error(ctx);
-    X509_STORE_CTX_free(ctx);
     if (ret == 1) {
-        return AGVerifyResult::OK;
+        STACK_OF(X509) *resolvedChain = X509_STORE_CTX_get_chain(ctx);
+        AGVerifyResult res = verifyWeakHashAlgorithm(resolvedChain);
+        X509_STORE_CTX_free(ctx);
+        return res;
     } else {
+        X509_STORE_CTX_free(ctx);
         switch (error) {
             case X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT:
             case X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN:

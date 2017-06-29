@@ -35,6 +35,7 @@ struct TestParam {
 };
 
 TestParam tests[] = {
+        {"www.google.com", AGVerifyResult::OK},
         {"badssl.com", AGVerifyResult::OK},
         {"expired.badssl.com", AGVerifyResult::EXPIRED},
         {"wrong.host.badssl.com", AGVerifyResult::HOST_NAME_MISMATCH},
@@ -59,7 +60,7 @@ protected:
     AGDataStorage *storage;
 };
 
-TEST_P(AGCertificateVerifierTestForHost, testBadSSL) {
+TEST_P(AGCertificateVerifierTestForHost, testHost) {
     const TestParam &test = GetParam();
     std::cout << "Testing host " << test.hostName << std::endl;
 
@@ -139,7 +140,7 @@ TEST_P(AGCertificateVerifierTestForHost, testBadSSL) {
         SSL_CTX_free(ctx);
 }
 
-INSTANTIATE_TEST_CASE_P(BadSSL, AGCertificateVerifierTestForHost, ::testing::ValuesIn(tests));
+INSTANTIATE_TEST_CASE_P(MainTests, AGCertificateVerifierTestForHost, ::testing::ValuesIn(tests));
 
 int get_ocsp_response(SSL *ssl, void *arg) {
     const unsigned char *ocsp_response;
