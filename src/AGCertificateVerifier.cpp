@@ -939,6 +939,7 @@ AGVerifyResult AGCertificateVerifier::doOCSPRequest(char *url, const std::string
     }
     res = verifyOCSPResponse(dnsName, certChain, response);
 
+    OCSP_RESPONSE_free(response);
     OCSP_CERTID_free(certid);
 finish:
     if (bio) {

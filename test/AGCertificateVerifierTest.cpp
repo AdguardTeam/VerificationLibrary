@@ -243,6 +243,7 @@ TEST_P(AGCertificateVerifierTestOcspForHost, testOCSPRequest) {
     {
         ASSERT_TRUE(ocsp_response != NULL);
         AGVerifyResult result = verifier.verifyOCSPResponse(test.hostName, SSL_get_peer_cert_chain(ssl), ocsp_response);
+        OCSP_RESPONSE_free(ocsp_response);
         std::cout << "OCSP stapled response check result: " << result << std::endl;
         ASSERT_TRUE(result == test.result);
     }

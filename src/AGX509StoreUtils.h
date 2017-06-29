@@ -38,9 +38,8 @@ namespace AGX509StoreUtils {
         X509_OBJECT obj = {0};
         X509_STORE_get_by_subject(ctx, X509_LU_X509, name, &obj);
         if (obj.data.x509) {
-            bool match = X509_cmp(obj.data.x509, cert) == 0;
-            X509_OBJECT_free_contents(&obj);
-            if (match) {
+            if (X509_cmp(obj.data.x509, cert) == 0) {
+                X509_OBJECT_free_contents(&obj);
                 return true;
             }
         }
@@ -49,9 +48,8 @@ namespace AGX509StoreUtils {
         X509_OBJECT *obj = X509_STORE_CTX_get_obj_by_subject(ctx, X509_LU_X509, name);
         X509 *x509 = X509_OBJECT_get0_X509(obj);
         if (x509) {
-            bool match = X509_cmp(x509, cert) == 0;
-            X509_OBJECT_free(obj);
-            if (match) {
+            if (X509_cmp(x509, cert) == 0) {
+                X509_OBJECT_free(obj);
                 return true;
             }
         }
