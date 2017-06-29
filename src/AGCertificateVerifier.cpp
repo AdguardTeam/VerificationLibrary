@@ -531,7 +531,7 @@ AGVerifyResult AGCertificateVerifier::verifyWeakHashAlgorithm(STACK_OF(X509) *ce
     time_t date = SHA1_DEPRECATION_DATE;
     if (X509_cmp_time(X509_get_notBefore(cert), &date) < 0) {
         // Issued before deprecation date, valid.
-        // return true;
+        return AGVerifyResult::OK;
     }
     for (int i = 0; i < num; i++) {
         cert = sk_X509_value(certChain, i);
