@@ -24,9 +24,9 @@
 #include "../src/AGCertificateVerifier.h"
 
 extern "C" {
-extern char _binary_crl_set_bin_start;
-extern char _binary_crl_set_bin_size;
-extern char _binary_crl_set_bin_end;
+extern char _binary_AGCertificateVerifierTestCrlSet_bin_start;
+extern char _binary_AGCertificateVerifierTestCrlSet_bin_size;
+extern char _binary_AGCertificateVerifierTestCrlSet_bin_end;
 }
 
 struct TestParam {
@@ -123,7 +123,8 @@ TEST_P(AGCertificateVerifierTestForHost, testBadSSL) {
     }
 
     AGCertificateVerifier verifier(storage);
-    verifier.updateCRLSets(&_binary_crl_set_bin_start, &_binary_crl_set_bin_end - &_binary_crl_set_bin_start);
+    verifier.updateCRLSets(&_binary_AGCertificateVerifierTestCrlSet_bin_start,
+                           &_binary_AGCertificateVerifierTestCrlSet_bin_end - &_binary_AGCertificateVerifierTestCrlSet_bin_start);
     AGVerifyResult result = verifier.verify(test.hostName, SSL_get_peer_cert_chain(ssl));
     std::cout << "Result: " << result << std::endl;
     ASSERT_TRUE(result == test.result);
