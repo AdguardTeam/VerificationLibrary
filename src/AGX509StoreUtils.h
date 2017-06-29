@@ -29,10 +29,9 @@ namespace AGX509StoreUtils {
      * @param cert X.509 certificate
      * @return True if certificate is found
      */
-    inline bool lookupInCtx(X509_STORE_CTX *ctx, X509 *cert) {
+    static inline bool lookupInCtx(X509_STORE_CTX *ctx, X509 *cert) {
         X509_NAME *name = X509_get_subject_name(cert);
         if (name == NULL) {
-            X509_STORE_CTX_free(ctx);
             return false;
         }
 #if OPENSSL_VERSION_NUMBER < 0x10100000L
@@ -42,7 +41,6 @@ namespace AGX509StoreUtils {
             bool match = X509_cmp(obj.data.x509, cert) == 0;
             X509_OBJECT_free_contents(&obj);
             if (match) {
-                X509_STORE_CTX_free(ctx);
                 return true;
             }
         }
@@ -54,7 +52,6 @@ namespace AGX509StoreUtils {
             bool match = X509_cmp(x509, cert) == 0;
             X509_OBJECT_free(obj);
             if (match) {
-                X509_STORE_CTX_free(ctx);
                 return true;
             }
         }
@@ -69,7 +66,7 @@ namespace AGX509StoreUtils {
      * @param certChain X.509 certificate chain
      * @return True if at least one certificate is found
      */
-    inline bool lookupInCtx(X509_STORE_CTX *ctx, STACK_OF(X509) *certChain) {
+    static inline bool lookupInCtx(X509_STORE_CTX *ctx, STACK_OF(X509) *certChain) {
         int num = sk_X509_num(certChain);
         for (int i = 0; i < num; i++) {
             X509 *cert = sk_X509_value(certChain, i);
@@ -82,11 +79,11 @@ namespace AGX509StoreUtils {
 
     /**
      * Lookup specified X.509 certificate in X509 store
-     * @param ctx X.509 store
+     * @param store X.509 store
      * @param cert X.509 certificate
      * @return True if certificate is found
      */
-    inline bool lookupInStore(X509_STORE *store, X509 *cert) {
+    static inline bool lookupInStore(X509_STORE *store, X509 *cert) {
         X509_STORE_CTX *ctx = X509_STORE_CTX_new();
         if (!X509_STORE_CTX_init(ctx, store, NULL, NULL)) {
             return false;
@@ -106,7 +103,7 @@ namespace AGX509StoreUtils {
      * @param cert X.509 certificate
      * @return True if certificate is found
      */
-    inline bool lookupInStore(X509_STORE *store, STACK_OF(X509) *certChain) {
+    static inline bool lookupInStore(X509_STORE *store, STACK_OF(X509) *certChain) {
         X509_STORE_CTX *ctx = X509_STORE_CTX_new();
         if (!X509_STORE_CTX_init(ctx, store, NULL, NULL)) {
             return false;

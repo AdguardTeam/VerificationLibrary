@@ -9,8 +9,8 @@ script:
   - make -j`nproc`
   - cd ../..
   - mkdir -p build && cd build
-  - cmake -DOPENSSL_ROOT_DIR=${PWD}/../third-party/openssl-${OPENSSL_VERSION} -DCMAKE_BUILD_TYPE=Debug -GNinja ..
-  - cmake --build . -- -j`nproc`
+  - cmake -DOPENSSL_ROOT_DIR=${PWD}/../third-party/openssl-${OPENSSL_VERSION} -DCMAKE_BUILD_TYPE=Debug ..
+  - cmake --build .
   - test/test_verifier
 
 dist: trusty
