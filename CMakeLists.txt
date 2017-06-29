@@ -3,7 +3,7 @@ project(certificate_verifier)
 
 set(CMAKE_CXX_STANDARD 98)
 
-find_package(OpenSSL)
+find_package(OpenSSL REQUIRED)
 
 # Third party libraries
 set(JSMN_DIR third-party/jsmn-c772a0e)
@@ -28,8 +28,10 @@ add_library(certificate_verifier SHARED ${THIRD_PARTY_FILES} ${SOURCE_FILES})
 if(UNIX)
     set_source_files_properties(${THIRD_PARTY_FILES} COMPILE_FLAGS "-fvisibility=hidden")
 endif(UNIX)
+target_include_directories(certificate_verifier PRIVATE ${OPENSSL_INCLUDE_DIR})
 target_include_directories(certificate_verifier PRIVATE ${JSMN_DIR})
 target_include_directories(certificate_verifier PRIVATE ${MINIZ_DIR})
+target_link_libraries(certificate_verifier ${OPENSSL_LIBRARIES})
 
 add_subdirectory(third-party/googletest-1.8.0)
 

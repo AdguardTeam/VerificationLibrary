@@ -35,6 +35,7 @@ namespace AGX509StoreUtils {
             X509_STORE_CTX_free(ctx);
             return false;
         }
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
         X509_OBJECT obj = {0};
         X509_STORE_get_by_subject(ctx, X509_LU_X509, name, &obj);
         if (obj.data.x509) {
@@ -46,6 +47,19 @@ namespace AGX509StoreUtils {
             }
         }
         X509_OBJECT_free_contents(&obj);
+#else
+        X509_OBJECT *obj = X509_STORE_CTX_get_obj_by_subject(ctx, X509_LU_X509, name);
+        X509 *x509 = X509_OBJECT_get0_X509(obj);
+        if (x509) {
+            bool match = X509_cmp(x509, cert) == 0;
+            X509_OBJECT_free(obj);
+            if (match) {
+                X509_STORE_CTX_free(ctx);
+                return true;
+            }
+        }
+        X509_OBJECT_free(obj);
+#endif
         return false;
     }
 

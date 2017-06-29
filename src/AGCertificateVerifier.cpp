@@ -536,7 +536,11 @@ AGVerifyResult AGCertificateVerifier::verifyWeakHashAlgorithm(STACK_OF(X509) *ce
     for (int i = 0; i < num; i++) {
         cert = sk_X509_value(certChain, i);
         int mdnid = 0;
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
         if (OBJ_find_sigid_algs(OBJ_obj2nid(cert->sig_alg->algorithm), &mdnid, NULL)) {
+#else
+        if (OBJ_find_sigid_algs(X509_get_signature_nid(cert), &mdnid, NULL)) {
+#endif
             if (mdnid == NID_sha1) {
                 // We trust root CA's with SHA1 hash signature
                 if (AGX509StoreUtils::lookupInStore(caStore, cert)) {
@@ -561,8 +565,7 @@ tls_ocsp_get_certid(X509 *main_cert, STACK_OF(X509) *extra_certs, X509_STORE *st
 {
     X509_NAME *issuer_name;
     X509 *issuer;
-    X509_STORE_CTX storectx;
-    X509_OBJECT tmpobj;
+    X509_STORE_CTX *storectx;
     OCSP_CERTID *cid = NULL;
 
     if ((issuer_name = X509_get_issuer_name(main_cert)) == NULL)
@@ -574,14 +577,29 @@ tls_ocsp_get_certid(X509 *main_cert, STACK_OF(X509) *extra_certs, X509_STORE *st
             return OCSP_cert_to_id(NULL, main_cert, issuer);
     }
 
-    if (X509_STORE_CTX_init(&storectx, store, main_cert, extra_certs) != 1)
+    storectx = X509_STORE_CTX_new();
+    if (!storectx) {
         return NULL;
-    if (X509_STORE_get_by_subject(&storectx, X509_LU_X509, issuer_name,
+    }
+    if (X509_STORE_CTX_init(storectx, store, main_cert, extra_certs) != 1) {
+        X509_STORE_CTX_free(storectx);
+        return NULL;
+    }
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+    X509_OBJECT tmpobj;
+    if (X509_STORE_get_by_subject(storectx, X509_LU_X509, issuer_name,
                                   &tmpobj) == 1) {
         cid = OCSP_cert_to_id(NULL, main_cert, tmpobj.data.x509);
         X509_OBJECT_free_contents(&tmpobj);
     }
-    X509_STORE_CTX_cleanup(&storectx);
+#else
+    X509_OBJECT *tmpobj;
+    if ((tmpobj = X509_STORE_CTX_get_obj_by_subject(storectx, X509_LU_X509, issuer_name)) != NULL) {
+        cid = OCSP_cert_to_id(NULL, main_cert, X509_OBJECT_get0_X509(tmpobj));
+        X509_OBJECT_free(tmpobj);
+    }
+#endif
+    X509_STORE_CTX_free(storectx);
     return cid;
 }
 
@@ -825,7 +843,7 @@ static OCSP_RESPONSE *query_responder(BIO *err, BIO *cbio, const char *path,
         }
     }
 
-    ctx = OCSP_sendreq_new(cbio, path, NULL, -1);
+    ctx = OCSP_sendreq_new(cbio, (char *)path, NULL, -1);
     if (!ctx)
         return NULL;
 

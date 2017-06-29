@@ -2,7 +2,8 @@ cmake_minimum_required(VERSION 3.1)
 
 set(CMAKE_CXX_STANDARD 98)
 
-link_libraries(certificate_verifier gtest_main ssl crypto)
+link_libraries(certificate_verifier gtest_main ${OPENSSL_LIBRARIES})
+include_directories(${OPENSSL_INCLUDE_DIR})
 
 add_library(crl_set_blob STATIC "${CMAKE_CURRENT_BINARY_DIR}/crl-set.o")
 set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/crl-set.o" PROPERTIES EXTERNAL_OBJECT true GENERATED true)
