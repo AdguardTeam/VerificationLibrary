@@ -83,6 +83,9 @@ namespace AGX509StoreUtils {
      */
     static inline bool lookupInStore(X509_STORE *store, X509 *cert) {
         X509_STORE_CTX *ctx = X509_STORE_CTX_new();
+        if (!ctx) {
+            return false;
+        }
         if (!X509_STORE_CTX_init(ctx, store, NULL, NULL)) {
             return false;
         }

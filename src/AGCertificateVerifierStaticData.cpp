@@ -70,6 +70,7 @@ void AGCertificateVerifier::loadMozillaCAStore() {
                               mozilla::ca_certificates_trusted_delegator[i].ca_data_len);
         if (cert) {
             X509_STORE_add_cert(mozillaCaStore, cert);
+            X509_free(cert);
         }
     }
     mozillaUntrustedCaStore = X509_STORE_new();
@@ -80,6 +81,7 @@ void AGCertificateVerifier::loadMozillaCAStore() {
                               mozilla::ca_certificates_not_trusted[i].ca_data_len);
         if (cert) {
             X509_STORE_add_cert(mozillaUntrustedCaStore, cert);
+            X509_free(cert);
         }
     }
 }

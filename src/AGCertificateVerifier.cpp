@@ -59,9 +59,6 @@ void AGCertificateVerifier::load() {
     caStore = X509_STORE_new();
     X509_STORE_set_default_paths(caStore);
 
-    X509_STORE_CTX *ctx = X509_STORE_CTX_new();
-    X509_STORE_CTX_init(ctx, caStore, NULL, NULL);
-
     // Static info
     loadStaticHPKPInfo();
     loadMozillaCAStore();
@@ -81,6 +78,9 @@ AGCertificateVerifier::~AGCertificateVerifier() {
     if (mozillaCaStore) {
         X509_STORE_free(mozillaCaStore);
     }
+    if (mozillaUntrustedCaStore) {
+        X509_STORE_free(mozillaUntrustedCaStore);
+    }
 }
 
 /**
@@ -89,7 +89,7 @@ AGCertificateVerifier::~AGCertificateVerifier() {
  * @param certChain Certificate chain
  */
 AGVerifyResult AGCertificateVerifier::verify(const std::string &dnsName, STACK_OF(X509) *certChain) {
-    if (caStore == NULL || mozillaCaStore == NULL) {
+    if (caStore == NULL) {
         return AGVerifyResult(AGVerifyResult::INVALID_CONFIGURATION, "Certificate verifier isn't initialized");
     }
     if (sk_X509_num(certChain) == 0) {
@@ -544,14 +544,11 @@ AGVerifyResult AGCertificateVerifier::verifyWeakHashAlgorithm(STACK_OF(X509) *ce
             if (mdnid == NID_sha1) {
                 // We trust root CA's with SHA1 hash signature
                 if (AGX509StoreUtils::lookupInStore(caStore, cert)) {
-                    return AGVerifyResult::OK;
+                    continue;
                 } else {
                     return AGVerifyResult(AGVerifyResult::WEAK_HASH, "Certificate uses weak hash algorithm");
                 }
             }
-        } else {
-            // Unknown algorithm, this should not happen
-            return AGVerifyResult(AGVerifyResult::INVALID_CHAIN, "Unknown algorithm");
         }
     }
     return AGVerifyResult::OK;
@@ -804,6 +801,10 @@ AGVerifyResult AGCertificateVerifier::verifyOCSP(const std::string &dnsName, STA
     return result;
 }
 
+/*
+ * This function is imported from OpenSSL
+ * See third-party/openssl/LICENSE for licensing information
+ */
 static OCSP_RESPONSE *query_responder(BIO *err, BIO *cbio, const char *path,
                                       const STACK_OF(CONF_VALUE) *headers,
                                       OCSP_REQUEST *req, int req_timeout)
@@ -896,20 +897,25 @@ AGVerifyResult AGCertificateVerifier::doOCSPRequest(char *url, const std::string
     char *host = NULL, *port = NULL, *path = NULL;
     int use_ssl = 0;
     OCSP_CERTID *certid = NULL;
-    STACK_OF(CONF_VALUE) *headers = sk_CONF_VALUE_new_null();
-    OCSP_REQUEST *req = OCSP_REQUEST_new();
+    STACK_OF(CONF_VALUE) *headers = NULL;
+    OCSP_REQUEST *req = NULL;
     OCSP_RESPONSE *response = NULL;
     BIO *bio = NULL;
+    X509 *cert = NULL;
 
-    X509 *cert = sk_X509_value(certChain, 0);
+    // Get cert
+    cert = sk_X509_value(certChain, 0);
     if (cert == NULL) {
         res = AGVerifyResult(AGVerifyResult::OCSP_FAIL, "Certificate chain is empty");
         goto finish;
     }
+
+    // Get OCSP url
     if (!OCSP_parse_url(url, &host, &port, &path, &use_ssl)) {
         res = AGVerifyResult(AGVerifyResult::OCSP_FAIL, "Invalid OCSP url");
         goto finish;
     }
+
     bio = BIO_new_connect(host);
     if (port) {
         BIO_set_conn_port(bio, port);
@@ -925,13 +931,27 @@ AGVerifyResult AGCertificateVerifier::doOCSPRequest(char *url, const std::string
         sbio = BIO_new_ssl(ctx, 1);
         bio = BIO_push(sbio, bio);
     }
+
+    // Construct request
     certid = tls_ocsp_get_certid(cert, certChain, caStore);
     if (certid == NULL) {
         res = AGVerifyResult(AGVerifyResult::OCSP_FAIL, "Not enough info for OCSP request creation");
         goto finish;
     }
+    req = OCSP_REQUEST_new();
+    if (req == NULL) {
+        res = AGVerifyResult(AGVerifyResult::OCSP_FAIL, "Can't allocate memory");
+        OCSP_CERTID_free(certid);
+        goto finish;
+    }
     OCSP_request_add0_id(req, certid);
 
+    // Send request
+    headers = sk_CONF_VALUE_new_null();
+    if (headers == NULL) {
+        res = AGVerifyResult(AGVerifyResult::OCSP_FAIL, "Can't allocate memory");
+        goto finish;
+    }
     response = query_responder(NULL, bio, "/", headers, req, OCSP_REQUEST_TIMEOUT_MS);
     if (response == NULL) {
         res = AGVerifyResult(AGVerifyResult::OCSP_FAIL, "Error querying the remote server");
@@ -939,12 +959,10 @@ AGVerifyResult AGCertificateVerifier::doOCSPRequest(char *url, const std::string
     }
     res = verifyOCSPResponse(dnsName, certChain, response);
 
-    OCSP_RESPONSE_free(response);
-    OCSP_CERTID_free(certid);
 finish:
-    if (bio) {
-        BIO_free_all(bio);
-    }
+    OCSP_RESPONSE_free(response);
+    OCSP_REQUEST_free(req);
+    BIO_free_all(bio);
     OPENSSL_free(host);
     OPENSSL_free(port);
     OPENSSL_free(path);
