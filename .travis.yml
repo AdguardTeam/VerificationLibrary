@@ -5,7 +5,7 @@ script:
   - wget https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz
   - tar xf openssl-${OPENSSL_VERSION}.tar.gz
   - cd openssl-${OPENSSL_VERSION}
-  - ./config --openssldir=/etc/ssl
+  - ./config --openssldir=/etc/ssl shared
   - make -j`nproc`
   - cd ../..
   - mkdir -p build && cd build
