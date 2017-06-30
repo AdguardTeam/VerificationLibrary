@@ -103,7 +103,7 @@ AGVerifyResult AGCertificateVerifier::verify(const std::string &dnsName, STACK_O
         return res;
     }
 
-    // Check chain (including SHA1 deprecation check
+    // Check chain (including SHA1 deprecation check)
      res = verifyChain(caStore, certChain);
     if (!res.isOk()) {
         return res;
@@ -511,7 +511,7 @@ AGVerifyResult AGCertificateVerifier::verifyWeakHashAlgorithm(X509_STORE_CTX *ct
         return AGVerifyResult::OK;
     }
 
-    // Building chain replacing cert to root CA store ones if possible
+    // Building chain replacing certs to root CA store ones if possible
     STACK_OF(X509) *ctxChain = sk_X509_new_null();
     if (ctxChain == NULL) {
         return AGVerifyResult(AGVerifyResult::INVALID_CHAIN, "Can't allocate memory");
