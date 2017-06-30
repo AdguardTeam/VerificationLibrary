@@ -40,9 +40,7 @@ namespace AGX509StoreUtils {
         X509_STORE_get_by_subject(ctx, X509_LU_X509, name, &obj);
         X509 *storeCert = obj.data.x509;
         if (storeCert) {
-            if (X509_cmp(storeCert, cert) == 0
-                || (M_ASN1_BIT_STRING_cmp(X509_get0_pubkey_bitstr(storeCert), X509_get0_pubkey_bitstr(cert)) == 0
-                    && storeCert->ex_flags & EXFLAG_SS))
+            if (X509_cmp(storeCert, cert) == 0)
             {
                 X509_OBJECT_free_contents(&obj);
                 return true;
@@ -53,9 +51,7 @@ namespace AGX509StoreUtils {
         X509_OBJECT *obj = X509_STORE_CTX_get_obj_by_subject(ctx, X509_LU_X509, name);
         X509 *storeCert = X509_OBJECT_get0_X509(obj);
         if (storeCert) {
-            if (X509_cmp(storeCert, cert) == 0
-                || (ASN1_STRING_cmp(X509_get0_pubkey_bitstr(storeCert), X509_get0_pubkey_bitstr(cert)) == 0
-                    && X509_get_extension_flags(storeCert) & EXFLAG_SS))
+            if (X509_cmp(storeCert, cert) == 0)
             {
                 X509_OBJECT_free(obj);
                 return true;

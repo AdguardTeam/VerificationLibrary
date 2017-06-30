@@ -183,11 +183,9 @@ private:
 
     void clearCAStore();
 
-    STACK_OF(X509) *sortedCertificateChain(STACK_OF(X509) *certChain);
-
     AGVerifyResult verifyDNSName(const std::string &dnsName, STACK_OF(X509) *certChain);
 
-    AGVerifyResult verifyBasic(X509_STORE *store, STACK_OF(X509) *certChain);
+    AGVerifyResult verifyChain(X509_STORE *store, STACK_OF(X509) *certChain);
 
     AGVerifyResult verifyPins(const std::string &dnsName, STACK_OF(X509) *certChain);
 
@@ -195,7 +193,7 @@ private:
 
     AGVerifyResult verifyUntrustedAuthority(STACK_OF(X509) *certChain);
 
-    AGVerifyResult verifyWeakHashAlgorithm(STACK_OF(X509) *certChain);
+    AGVerifyResult verifyWeakHashAlgorithm(X509_STORE_CTX *ctx);
 
     void saveDynamicHPKPInfo();
 

@@ -97,30 +97,34 @@ AGVerifyResult AGCertificateVerifier::verify(const std::string &dnsName, STACK_O
     }
 
     AGVerifyResult res;
+    // Check host name
     res = verifyDNSName(dnsName, certChain);
     if (!res.isOk()) {
         return res;
     }
 
-    STACK_OF(X509) *sortedChain = sortedCertificateChain(certChain);
-    res = verifyBasic(caStore, sortedChain);
+    // Check chain (including SHA1 deprecation check
+     res = verifyChain(caStore, certChain);
     if (!res.isOk()) {
-        goto finish;
+        return res;
     }
-    res = verifyRevocations(sortedChain);
+
+    // Checks without verify context
+    // CRL set check
+    res = verifyRevocations(certChain);
     if (!res.isOk()) {
-        goto finish;
+        return res;
     }
-    res = verifyUntrustedAuthority(sortedChain);
+    // Distrusted CA check
+    res = verifyUntrustedAuthority(certChain);
     if (!res.isOk()) {
-        goto finish;
+        return res;
     }
-    res = verifyPins(dnsName, sortedChain);
+    // HPKP check
+    res = verifyPins(dnsName, certChain);
     if (!res.isOk()) {
-        goto finish;
+        return res;
     }
-finish:
-    sk_X509_pop_free(sortedChain, &X509_free);
     return res;
 }
 
@@ -161,37 +165,6 @@ void AGCertificateVerifier::clearCAStore() {
 }
 
 /**
- * Sorts certificate chain
- * @param certChain Certificate chain
- * @return Sorted certificate chain
- */
-STACK_OF(X509) *AGCertificateVerifier::sortedCertificateChain(STACK_OF(X509) *certChain) {
-    int num = sk_X509_num(certChain);
-    STACK_OF(X509) *sortedChain = sk_X509_new_null();
-    if (num == 0) {
-        return sortedChain;
-    }
-
-    // Push first cert (hostname must be subject)
-    X509 *cert = sk_X509_value(certChain, 0);
-    if (cert != NULL) {
-        sk_X509_push(sortedChain, X509_dup(cert));
-    }
-    // Push other parents
-    while (cert) {
-        if (X509_NAME_cmp(X509_get_issuer_name(cert), X509_get_subject_name(cert)) == 0) {
-            cert = NULL;
-            continue;
-        }
-        cert = X509_find_by_subject(certChain, X509_get_issuer_name(cert));
-        if (cert) {
-            sk_X509_push(sortedChain, X509_dup(cert));
-        }
-    }
-    return sortedChain;
-}
-
-/**
  * Verify if certificate matches hostname
  * @param dnsName Hostname
  * @param certChain Certificate chain
@@ -220,7 +193,7 @@ AGVerifyResult AGCertificateVerifier::verifyDNSName(const std::string &dnsName, 
  * @param certChain Certificate chain
  * @return Verify result
  */
-AGVerifyResult AGCertificateVerifier::verifyBasic(X509_STORE *store, STACK_OF(X509) *certChain) {
+AGVerifyResult AGCertificateVerifier::verifyChain(X509_STORE *store, STACK_OF(X509) *certChain) {
     // Initialize cert store context
     X509_STORE_CTX *ctx = X509_STORE_CTX_new();
     if (!X509_STORE_CTX_init(ctx, store, NULL, NULL)) {
@@ -234,12 +207,7 @@ AGVerifyResult AGCertificateVerifier::verifyBasic(X509_STORE *store, STACK_OF(X5
     X509_STORE_CTX_set_chain(ctx, certChain);
     int ret = X509_verify_cert(ctx);
     int error = X509_STORE_CTX_get_error(ctx);
-    if (ret == 1) {
-        STACK_OF(X509) *resolvedChain = X509_STORE_CTX_get_chain(ctx);
-        AGVerifyResult res = verifyWeakHashAlgorithm(resolvedChain);
-        X509_STORE_CTX_free(ctx);
-        return res;
-    } else {
+    if (ret != 1) {
         X509_STORE_CTX_free(ctx);
         switch (error) {
             case X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT:
@@ -253,6 +221,11 @@ AGVerifyResult AGCertificateVerifier::verifyBasic(X509_STORE *store, STACK_OF(X5
                 return AGVerifyResult(AGVerifyResult::INVALID_CHAIN, X509_verify_cert_error_string(error));
         }
     }
+
+    AGVerifyResult res = verifyWeakHashAlgorithm(ctx);
+
+    X509_STORE_CTX_free(ctx);
+    return res;
 }
 
 /**
@@ -263,7 +236,7 @@ AGVerifyResult AGCertificateVerifier::verifyBasic(X509_STORE *store, STACK_OF(X5
  */
 AGVerifyResult AGCertificateVerifier::verifyPins(const std::string &dnsName, STACK_OF(X509) *certChain) {
     // Don't check pins for local root CA
-    if (!verifyBasic(mozillaCaStore, certChain).isOk()) {
+    if (!verifyChain(mozillaCaStore, certChain).isOk()) {
         return AGVerifyResult(AGVerifyResult::OK, "Certificate passed basic checks but issued by non-standard CA, skipping pinning test");
     }
 
@@ -524,32 +497,62 @@ AGVerifyResult AGCertificateVerifier::verifyUntrustedAuthority(STACK_OF(X509) *c
  * @param certChain Certificate chain
  * @return Verify result
  */
-AGVerifyResult AGCertificateVerifier::verifyWeakHashAlgorithm(STACK_OF(X509) *certChain) {
-    int num = sk_X509_num(certChain);
-    X509 *cert = sk_X509_value(certChain, 0);
+AGVerifyResult AGCertificateVerifier::verifyWeakHashAlgorithm(X509_STORE_CTX *ctx) {
+    // Get current resolved chain from ctx
+    STACK_OF(X509) *resolvedChain = X509_STORE_CTX_get_chain(ctx);
+    if (resolvedChain == NULL || sk_X509_num(resolvedChain) == 0) {
+        return AGVerifyResult(AGVerifyResult::INVALID_CHAIN, "Verify failed but tried to run weak hash check");
+    }
+    X509 *cert = sk_X509_value(resolvedChain, 0);
+
     time_t date = SHA1_DEPRECATION_DATE;
     if (X509_cmp_time(X509_get_notBefore(cert), &date) < 0) {
         // Issued before deprecation date, valid.
         return AGVerifyResult::OK;
     }
-    for (int i = 0; i < num; i++) {
-        cert = sk_X509_value(certChain, i);
+
+    // Building chain replacing cert to root CA store ones if possible
+    STACK_OF(X509) *ctxChain = sk_X509_new_null();
+    if (ctxChain == NULL) {
+        return AGVerifyResult(AGVerifyResult::INVALID_CHAIN, "Can't allocate memory");
+    }
+    while (cert) {
+        sk_X509_push(ctxChain, cert);
+        X509 *issuer;
+        int r = X509_STORE_CTX_get1_issuer(&issuer, ctx, cert);
+        if (r == 1) {
+            X509_free(issuer); // No need for up refcount
+            if (!X509_cmp(issuer, cert)) {
+                break;
+            }
+            cert = issuer;
+        } else {
+            cert = X509_find_by_subject(resolvedChain, X509_get_issuer_name(cert));
+        }
+    }
+
+    // Check SHA1 deprecation
+    for (int i = 0; i < sk_X509_num(ctxChain); i++) {
+        cert = sk_X509_value(ctxChain, i);
         int mdnid = 0;
 #if OPENSSL_VERSION_NUMBER < 0x10100000L
         if (OBJ_find_sigid_algs(OBJ_obj2nid(cert->sig_alg->algorithm), &mdnid, NULL)) {
 #else
-        if (OBJ_find_sigid_algs(X509_get_signature_nid(cert), &mdnid, NULL)) {
+            if (OBJ_find_sigid_algs(X509_get_signature_nid(cert), &mdnid, NULL)) {
 #endif
             if (mdnid == NID_sha1) {
                 // We trust root CA's with SHA1 hash signature
-                if (AGX509StoreUtils::lookupInStore(caStore, cert)) {
+                if (AGX509StoreUtils::lookupInCtx(ctx, cert)) {
                     continue;
                 } else {
-                    return AGVerifyResult(AGVerifyResult::WEAK_HASH, "Certificate uses weak hash algorithm");
+                    sk_X509_free(ctxChain);
+                    char *subject = X509_NAME_oneline(X509_get_subject_name(cert), NULL, 0);
+                    return AGVerifyResult(AGVerifyResult::WEAK_HASH, "Detected SHA1 intermediate certificate: " + std::string(subject));
                 }
             }
         }
     }
+    sk_X509_free(ctxChain);
     return AGVerifyResult::OK;
 }
 
