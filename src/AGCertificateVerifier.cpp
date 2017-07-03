@@ -2,7 +2,7 @@
  * This file is part of Adguard certificate verification library
  * (http://github.com/AdguardTeam/VerificationLibrary)
  *
- * Copyright 2017 Performix LLC
+ * Copyright 2017 Adguard Software Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -84,13 +84,14 @@ AGCertificateVerifier::~AGCertificateVerifier() {
 }
 
 /**
- * Verify certificate
- * @param dnsName DNS name of request
+ * Verify specified certificate chain
+ * @param dnsName Host name
  * @param certChain Certificate chain
+ * @return Verify result
  */
 AGVerifyResult AGCertificateVerifier::verify(const std::string &dnsName, STACK_OF(X509) *certChain) {
     if (caStore == NULL) {
-        return AGVerifyResult(AGVerifyResult::INVALID_CONFIGURATION, "Certificate verifier isn't initialized");
+        return AGVerifyResult(AGVerifyResult::VERIFIER_NOT_INITIALIZED, "Certificate verifier isn't initialized");
     }
     if (sk_X509_num(certChain) == 0) {
         return AGVerifyResult(AGVerifyResult::INVALID_CHAIN, "Certificate chain is empty");
@@ -111,7 +112,7 @@ AGVerifyResult AGCertificateVerifier::verify(const std::string &dnsName, STACK_O
 
     // Checks without verify context
     // CRL set check
-    res = verifyRevocations(certChain);
+    res = verifyCrlSetsStatus(certChain);
     if (!res.isOk()) {
         return res;
     }
@@ -129,10 +130,10 @@ AGVerifyResult AGCertificateVerifier::verify(const std::string &dnsName, STACK_O
 }
 
 /**
- * Sets local CA store from given certificate list
+ * Set CA store of verifier to the specified certificate list.
  * @param certList Certificate list
  */
-void AGCertificateVerifier::setLocalCAStore(STACK_OF(X509) *certList) {
+void AGCertificateVerifier::setCAStore(STACK_OF(X509) *certList) {
     clearCAStore();
     int num = sk_X509_num(certList);
     for (int i = 0 ; i < num; i++) {
@@ -144,10 +145,10 @@ void AGCertificateVerifier::setLocalCAStore(STACK_OF(X509) *certList) {
 }
 
 /**
- * Sets local CA store to given CA store
- * @param store CA store
+ * Set CA store of verifier to the specified certificate store (X509_STORE object).
+ * @param store Initialized certificate store as X509_STORE object
  */
-void AGCertificateVerifier::setLocalCAStore(X509_STORE *store) {
+void AGCertificateVerifier::setCAStore(X509_STORE *store) {
     if (caStore) {
         X509_STORE_free(caStore);
     }
@@ -208,21 +209,28 @@ AGVerifyResult AGCertificateVerifier::verifyChain(X509_STORE *store, STACK_OF(X5
     int ret = X509_verify_cert(ctx);
     int error = X509_STORE_CTX_get_error(ctx);
     if (ret != 1) {
+        std::string messageStart;
+        int depth = X509_STORE_CTX_get_error_depth(ctx);
+        if (depth < sk_X509_num(X509_STORE_CTX_get_chain(ctx))) {
+            X509 *cert = sk_X509_value(X509_STORE_CTX_get_chain(ctx), depth);
+            const char *subject = X509_NAME_oneline(X509_get_subject_name(cert), NULL, 0);
+            messageStart = std::string() + "Error verifying certificate \"" + subject + "\": ";
+        }
         X509_STORE_CTX_free(ctx);
         switch (error) {
             case X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT:
             case X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN:
-                return AGVerifyResult(AGVerifyResult::SELF_SIGNED, X509_verify_cert_error_string(error));
+                return AGVerifyResult(AGVerifyResult::SELF_SIGNED, messageStart + X509_verify_cert_error_string(error));
             case X509_V_ERR_CERT_HAS_EXPIRED:
-                return AGVerifyResult(AGVerifyResult::EXPIRED, X509_verify_cert_error_string(error));
+                return AGVerifyResult(AGVerifyResult::EXPIRED, messageStart + X509_verify_cert_error_string(error));
             case X509_V_ERR_CERT_NOT_YET_VALID:
-                return AGVerifyResult(AGVerifyResult::NOT_YET_VALID, X509_verify_cert_error_string(error));
+                return AGVerifyResult(AGVerifyResult::NOT_YET_VALID, messageStart + X509_verify_cert_error_string(error));
             default:
-                return AGVerifyResult(AGVerifyResult::INVALID_CHAIN, X509_verify_cert_error_string(error));
+                return AGVerifyResult(AGVerifyResult::INVALID_CHAIN, messageStart + X509_verify_cert_error_string(error));
         }
     }
 
-    AGVerifyResult res = verifyWeakHashAlgorithm(ctx);
+    AGVerifyResult res = verifyDeprecatedSha1Signature(ctx);
 
     X509_STORE_CTX_free(ctx);
     return res;
@@ -254,7 +262,7 @@ AGVerifyResult AGCertificateVerifier::verifyPins(const std::string &dnsName, STA
                 if (info.hasPinsInChain(certChain)) {
                     return AGVerifyResult::OK;
                 } else {
-                    return AGVerifyResult(AGVerifyResult::PINNING_ERROR, "Certificate does not match dynamic public key pin for this host");
+                    return AGVerifyResult(AGVerifyResult::PINNING_ERROR, "Certificate chain does not match dynamic public key pin for this host");
                 }
             }
         }
@@ -268,7 +276,7 @@ AGVerifyResult AGCertificateVerifier::verifyPins(const std::string &dnsName, STA
                 if (info.hasPinsInChain(certChain)) {
                     return AGVerifyResult(AGVerifyResult::OK);
                 } else {
-                    return AGVerifyResult(AGVerifyResult::PINNING_ERROR, "Certificate does not match static public key pin for this host");
+                    return AGVerifyResult(AGVerifyResult::PINNING_ERROR, "Certificate chain does not match static public key pin for this host");
                 }
             }
         }
@@ -277,9 +285,16 @@ AGVerifyResult AGCertificateVerifier::verifyPins(const std::string &dnsName, STA
 }
 
 /**
- * Save CRLSets CRX to disk
- * CRLSets CRX extension id: hfnkpimlhhgieaddgfemjhofmfblmnib
- * CRLSets CRX download URL: http://clients2.google.com/service/update2/crx?response=redirect&x=id%3Dhfnkpimlhhgieaddgfemjhofmfblmnib%26v=%26uc
+ * Save CRLSets CRX file to certificate verifier storage.
+ *
+ * CRLSets CRX file is CRX containing file named "crl-set".
+ * CRX file format: https://developer.chrome.com/extensions/crx
+ * CRLSets file format: https://chromium.googlesource.com/experimental/chromium/src/+/master/net/cert/crl_set_storage.cc
+ *
+ * You may get CRLSets signed by Google:
+ * - CRLSets CRX extension id: hfnkpimlhhgieaddgfemjhofmfblmnib
+ * - CRLSets CRX download URL: http://clients2.google.com/service/update2/crx?response=redirect&x=id%3Dhfnkpimlhhgieaddgfemjhofmfblmnib%26v=%26uc
+ * or use your own set.
  */
 void AGCertificateVerifier::updateCRLSets(const char *crlSetCrx, size_t crlSetCrxLen) {
     storage->saveData(CRL_SET_CRX_FILE, std::string(crlSetCrx, crlSetCrxLen));
@@ -298,13 +313,13 @@ static std::string certHashBase64(X509 *cert) {
  * @param certChain Certificate chain
  * @return Verify result
  */
-AGVerifyResult AGCertificateVerifier::verifyRevocations(STACK_OF(X509) *certChain) {
+AGVerifyResult AGCertificateVerifier::verifyCrlSetsStatus(STACK_OF(X509) *certChain) {
     int num = sk_X509_num(certChain);
     X509 *cert = sk_X509_value(certChain, 0);
     std::string hash = certHashBase64(cert);
     if (revokedSHADigests.count(hash)) {
         // blacklisted by public key hash
-        return AGVerifyResult(AGVerifyResult::REVOKED, "Certificate is found in CRL sets by hash");
+        return AGVerifyResult(AGVerifyResult::REVOKED_CRLSETS, "Certificate is found in CRL sets by hash");
     }
 
     ASN1_INTEGER *asn1_serial = X509_get_serialNumber(cert);
@@ -321,7 +336,7 @@ AGVerifyResult AGCertificateVerifier::verifyRevocations(STACK_OF(X509) *certChai
         if (it != issuerSHADigestToCRL.end()) {
             if (it->second.count(serial)) {
                 // blacklisted in CRL
-                return AGVerifyResult(AGVerifyResult::REVOKED, "Certificate is found in CRL sets by serial number");
+                return AGVerifyResult(AGVerifyResult::REVOKED_CRLSETS, "Certificate is found in CRL sets by serial number");
             }
         }
     }
@@ -334,8 +349,9 @@ static size_t appendToStringStream(void *pOpaque, mz_uint64 file_ofs, const void
     os.write((const char *) pBuf, n);
     return n;
 }
+
 /**
- * Load CRL sets (local cached version)
+ * Load CRL sets previously saved in verifier storage.
  */
 void AGCertificateVerifier::loadCRLSets() {
     std::string crlSetCrx;
@@ -447,20 +463,30 @@ void AGCertificateVerifier::loadCRLSets() {
 }
 
 /**
- * Update HPKP pinning information
- * @param dnsName Hostname
+ * Add HTTP public key pinning info (HPKP) from HTTP header.
+ *
+ * This method should be called by HTTP client while processing HTTP response, when
+ * there is an HTTP header "Public-Key-Pins" or "Public-Key-Pins-Report-Only".
+ *
+ * This information may after be used by verify() method to perform key pinning checks.
+ *
+ * Links with info about how HPKP works:
+ * https://en.wikipedia.org/wiki/HTTP_Public_Key_Pinning
+ * https://developer.mozilla.org/en-US/docs/Web/HTTP/Public_Key_Pinning
+ *
+ * @param dnsName Host name
  * @param certChain Certificate chain
- * @param header HTTP header name
- * @param value HTTP header value
+ * @param httpHeaderName HTTP header name
+ * @param httpHeaderValue HTTP header value
  */
 void AGCertificateVerifier::updateHPKPInfo(
-        const std::string &dnsName, STACK_OF(X509) *certChain, const std::string &header, const std::string &value)
+        const std::string &dnsName, STACK_OF(X509) *certChain, const std::string &httpHeaderName, const std::string &httpHeaderValue)
 {
-    if (AGStringUtils::toLower(value).find("report-only") != std::string::npos) {
-        // TODO: report
+    if (AGStringUtils::toLower(httpHeaderValue).find("report-only") != std::string::npos) {
+        // TODO: Add support for report URI
         return;
     }
-    AGHPKPInfo info = AGHPKPInfo(value);
+    AGHPKPInfo info = AGHPKPInfo(httpHeaderValue);
     if (!info.isValid()) {
         return;
     }
@@ -476,7 +502,9 @@ void AGCertificateVerifier::updateHPKPInfo(
 }
 
 /**
- * Verify that certificate chain has no untrusted authorities
+ * Verify that certificate chain has no authorities that are no longer trusted by major web browsers
+ * due to various reasons.
+ *
  * @param certChain Certificate chain
  * @return Verify result
  */
@@ -490,14 +518,15 @@ AGVerifyResult AGCertificateVerifier::verifyUntrustedAuthority(STACK_OF(X509) *c
 }
 
 /**
- * Verify that certificate does not use weak signature hash algorithm.
- * <p/>
- * Verifies only certificates issued after October, 2016
+ * Verify that certificate does not use SHA1 signature hash algorithm.
+ *
+ * Verifies only certificates issued after October, 2016.
+ * Another weak hash algorithms (MD2/4/5) are already untrusted by OpenSSL.
  *
  * @param certChain Certificate chain
  * @return Verify result
  */
-AGVerifyResult AGCertificateVerifier::verifyWeakHashAlgorithm(X509_STORE_CTX *ctx) {
+AGVerifyResult AGCertificateVerifier::verifyDeprecatedSha1Signature(X509_STORE_CTX *ctx) {
     // Get current resolved chain from ctx
     STACK_OF(X509) *resolvedChain = X509_STORE_CTX_get_chain(ctx);
     if (resolvedChain == NULL || sk_X509_num(resolvedChain) == 0) {
@@ -514,7 +543,7 @@ AGVerifyResult AGCertificateVerifier::verifyWeakHashAlgorithm(X509_STORE_CTX *ct
     // Building chain replacing certs to root CA store ones if possible
     STACK_OF(X509) *ctxChain = sk_X509_new_null();
     if (ctxChain == NULL) {
-        return AGVerifyResult(AGVerifyResult::INVALID_CHAIN, "Can't allocate memory");
+        return AGVerifyResult(AGVerifyResult::OUT_OF_MEMORY, "Can't allocate memory");
     }
     while (cert) {
         sk_X509_push(ctxChain, cert);
@@ -536,10 +565,11 @@ AGVerifyResult AGCertificateVerifier::verifyWeakHashAlgorithm(X509_STORE_CTX *ct
         cert = sk_X509_value(ctxChain, i);
         int mdnid = 0;
 #if OPENSSL_VERSION_NUMBER < 0x10100000L
-        if (OBJ_find_sigid_algs(OBJ_obj2nid(cert->sig_alg->algorithm), &mdnid, NULL)) {
+        if (OBJ_find_sigid_algs(OBJ_obj2nid(cert->sig_alg->algorithm), &mdnid, NULL))
 #else
-            if (OBJ_find_sigid_algs(X509_get_signature_nid(cert), &mdnid, NULL)) {
+        if (OBJ_find_sigid_algs(X509_get_signature_nid(cert), &mdnid, NULL))
 #endif
+        {
             if (mdnid == NID_sha1) {
                 // We trust root CA's with SHA1 hash signature
                 if (AGX509StoreUtils::lookupInCtx(ctx, cert)) {
@@ -547,7 +577,7 @@ AGVerifyResult AGCertificateVerifier::verifyWeakHashAlgorithm(X509_STORE_CTX *ct
                 } else {
                     sk_X509_free(ctxChain);
                     char *subject = X509_NAME_oneline(X509_get_subject_name(cert), NULL, 0);
-                    return AGVerifyResult(AGVerifyResult::WEAK_HASH, "Detected SHA1 intermediate certificate: " + std::string(subject));
+                    return AGVerifyResult(AGVerifyResult::SIGNED_WITH_SHA1, "Detected SHA1 intermediate certificate: " + std::string(subject));
                 }
             }
         }
@@ -558,6 +588,7 @@ AGVerifyResult AGCertificateVerifier::verifyWeakHashAlgorithm(X509_STORE_CTX *ct
 
 /*
  * Imported from libtls
+ * See third-party/libressl/LICENSE for licensing information
  */
 static OCSP_CERTID *
 tls_ocsp_get_certid(X509 *main_cert, STACK_OF(X509) *extra_certs, X509_STORE *store)
@@ -602,6 +633,18 @@ tls_ocsp_get_certid(X509 *main_cert, STACK_OF(X509) *extra_certs, X509_STORE *st
     return cid;
 }
 
+/**
+ * Verify OCSP response for leaf certificate OCSP check (OpenSSL OCSP_RESPONSE structure).
+ *
+ * This method may be used to verify stapled OCSP response.
+ *
+ * Full certificate chain is needed to check OCSP response signature.
+ *
+ * @param dnsName Host name
+ * @param certChain Certificate chain
+ * @param response
+ * @return
+ */
 AGVerifyResult AGCertificateVerifier::verifyOCSPResponse(const std::string &dnsName, STACK_OF(X509) *certChain,
                                                          OCSP_RESPONSE *resp) {
     AGVerifyResult res;
@@ -613,7 +656,7 @@ AGVerifyResult AGCertificateVerifier::verifyOCSPResponse(const std::string &dnsN
     unsigned long flags;
 
     if ((br = OCSP_response_get1_basic(resp)) == NULL) {
-        return AGVerifyResult(AGVerifyResult::OCSP_FAIL, "Can't get basic response from OCSP response");
+        return AGVerifyResult(AGVerifyResult::OCSP_INVALID_RESPONSE, "Can't get basic response from OCSP response");
     }
 
     /*
@@ -625,33 +668,33 @@ AGVerifyResult AGCertificateVerifier::verifyOCSPResponse(const std::string &dnsN
     /* now verify */
     if (OCSP_basic_verify(br, certChain,
                           caStore, flags) != 1) {
-        res = AGVerifyResult(AGVerifyResult::OCSP_FAIL, "OCSP response signature verify failed");
+        res = AGVerifyResult(AGVerifyResult::OCSP_INVALID_RESPONSE, "OCSP response signature verify failed");
         goto finish;
     }
 
     /* signature OK, look inside */
     response_status = OCSP_response_status(resp);
     if (response_status != OCSP_RESPONSE_STATUS_SUCCESSFUL) {
-        res = AGVerifyResult(AGVerifyResult::OCSP_FAIL, std::string("OCSP verify failed: response status is not successful: ") + OCSP_response_status_str(response_status));
+        res = AGVerifyResult(AGVerifyResult::OCSP_INVALID_RESPONSE, std::string("OCSP verify failed: response status is not successful: ") + OCSP_response_status_str(response_status));
         goto finish;
     }
 
     cid = tls_ocsp_get_certid(sk_X509_value(certChain, 0),
                               certChain, caStore);
     if (cid == NULL) {
-        res = AGVerifyResult(AGVerifyResult::OCSP_FAIL, "OCSP verify failed: no issuer cert");
+        res = AGVerifyResult(AGVerifyResult::OCSP_INVALID_RESPONSE, "OCSP verify failed: no issuer cert");
         goto finish;
     }
 
     if (OCSP_resp_find_status(br, cid, &cert_status, &crl_reason,
                               &revtime, &thisupd, &nextupd) != 1) {
-        res = AGVerifyResult(AGVerifyResult::OCSP_FAIL, "OCSP verify failed: no result for cert");
+        res = AGVerifyResult(AGVerifyResult::OCSP_INVALID_RESPONSE, "OCSP verify failed: no result for cert");
         goto finish;
     }
 
     if (OCSP_check_validity(thisupd, nextupd, OCSP_JITTER_SEC,
                             OCSP_MAXAGE_SEC) != 1) {
-        res = AGVerifyResult(AGVerifyResult::OCSP_FAIL, "OCSP response is not current");
+        res = AGVerifyResult(AGVerifyResult::OCSP_INVALID_RESPONSE, "OCSP response is not current");
         goto finish;
     }
 
@@ -663,7 +706,7 @@ AGVerifyResult AGCertificateVerifier::verifyOCSPResponse(const std::string &dnsN
 
     /* finally can look at status */
     if (cert_status == V_OCSP_CERTSTATUS_REVOKED) {
-        res = AGVerifyResult(AGVerifyResult::REVOKED, "Certificate was revoked by issuer");
+        res = AGVerifyResult(AGVerifyResult::REVOKED_OCSP, "Certificate was revoked by issuer");
         goto finish;
     }
 
@@ -676,6 +719,9 @@ finish:
     return res;
 }
 
+/**
+ * Load HTTP public key pinning information for verifier storage.
+ */
 void AGCertificateVerifier::loadDynamicHPKPInfo() {
     std::string json;
     if (!storage->loadData(HPKP_INFO_FILE, &json)) {
@@ -748,6 +794,9 @@ void AGCertificateVerifier::loadDynamicHPKPInfo() {
     }
 }
 
+/**
+ * Save HTTP public key pinning information into verifier storage
+ */
 void AGCertificateVerifier::saveDynamicHPKPInfo() {
     std::ostringstream dynamicHPKPInfoData;
     dynamicHPKPInfoData << "[ ";
@@ -790,6 +839,11 @@ void AGCertificateVerifier::saveDynamicHPKPInfo() {
     storage->saveData(HPKP_INFO_FILE, dynamicHPKPInfoData.str());
 }
 
+/**
+ * Perform an OCSP request for leaf certificate and verify its result.
+ *
+ * Full certificate chain is needed to check OCSP response signature.
+ */
 AGVerifyResult AGCertificateVerifier::verifyOCSP(const std::string &dnsName, STACK_OF(X509) *certChain) {
     AGVerifyResult result = AGVerifyResult::OK;
     X509 *cert = sk_X509_value(certChain, 0);
@@ -908,13 +962,13 @@ AGVerifyResult AGCertificateVerifier::doOCSPRequest(char *url, const std::string
     // Get cert
     cert = sk_X509_value(certChain, 0);
     if (cert == NULL) {
-        res = AGVerifyResult(AGVerifyResult::OCSP_FAIL, "Certificate chain is empty");
+        res = AGVerifyResult(AGVerifyResult::OCSP_REQUEST_FAILED, "Certificate chain is empty");
         goto finish;
     }
 
     // Get OCSP url
     if (!OCSP_parse_url(url, &host, &port, &path, &use_ssl)) {
-        res = AGVerifyResult(AGVerifyResult::OCSP_FAIL, "Invalid OCSP url");
+        res = AGVerifyResult(AGVerifyResult::OCSP_REQUEST_FAILED, "Invalid OCSP url");
         goto finish;
     }
 
@@ -926,7 +980,7 @@ AGVerifyResult AGCertificateVerifier::doOCSPRequest(char *url, const std::string
         BIO *sbio;
         SSL_CTX *ctx = SSL_CTX_new(SSLv23_client_method());
         if (ctx == NULL) {
-            res = AGVerifyResult(AGVerifyResult::OCSP_FAIL, "Error connecting to the remote server: error creating SSL context");
+            res = AGVerifyResult(AGVerifyResult::OCSP_REQUEST_FAILED, "Error connecting to the remote server: error creating SSL context");
             goto finish;
         }
         SSL_CTX_set_mode(ctx, SSL_MODE_AUTO_RETRY);
@@ -937,12 +991,12 @@ AGVerifyResult AGCertificateVerifier::doOCSPRequest(char *url, const std::string
     // Construct request
     certid = tls_ocsp_get_certid(cert, certChain, caStore);
     if (certid == NULL) {
-        res = AGVerifyResult(AGVerifyResult::OCSP_FAIL, "Not enough info for OCSP request creation");
+        res = AGVerifyResult(AGVerifyResult::OCSP_REQUEST_FAILED, "Not enough info for OCSP request creation");
         goto finish;
     }
     req = OCSP_REQUEST_new();
     if (req == NULL) {
-        res = AGVerifyResult(AGVerifyResult::OCSP_FAIL, "Can't allocate memory");
+        res = AGVerifyResult(AGVerifyResult::OUT_OF_MEMORY, "Can't allocate memory");
         OCSP_CERTID_free(certid);
         goto finish;
     }
@@ -951,12 +1005,12 @@ AGVerifyResult AGCertificateVerifier::doOCSPRequest(char *url, const std::string
     // Send request
     headers = sk_CONF_VALUE_new_null();
     if (headers == NULL) {
-        res = AGVerifyResult(AGVerifyResult::OCSP_FAIL, "Can't allocate memory");
+        res = AGVerifyResult(AGVerifyResult::OUT_OF_MEMORY, "Can't allocate memory");
         goto finish;
     }
     response = query_responder(NULL, bio, "/", headers, req, OCSP_REQUEST_TIMEOUT_MS);
     if (response == NULL) {
-        res = AGVerifyResult(AGVerifyResult::OCSP_FAIL, "Error querying the remote server");
+        res = AGVerifyResult(AGVerifyResult::OCSP_REQUEST_FAILED, "Error querying the remote server");
         goto finish;
     }
     res = verifyOCSPResponse(dnsName, certChain, response);

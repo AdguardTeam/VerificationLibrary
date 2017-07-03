@@ -17,6 +17,25 @@ test/test_verifier
 
 ### Library interface
 
+#### Example of usage
+```c++
+#include <AGCertificateVerifier.h>
+
+void f() {
+    AGStorage *storage = AGSimpleDirectoryStorage("./data");
+    AGCertificateVerifier verifier(storage);
+    ...
+    // Connect to TLS server here
+    ...
+    STACK_OF(X509) *certChain = SSL_get_peer_cert_chain();
+    AGVerifierResult result = verifier.verify("google.com", certChain);
+    if (result != OK) {
+        std::clog << result << std::endl;
+        abort();
+    }
+}
+```
+
 #### Initialization
 Verifier is initialized by the following constructor:
 ```c++
@@ -27,8 +46,8 @@ It is strongly recommended to implement your own AGDataStorage. However, there i
 After verifier is open, CA store must be set by one of the following methods.
 If OpenSSL can read CA certificates from default paths, this step is unneeded.
 ```c++
-void AGCertificateVerifier::setLocalCAStore(STACK_OF(X509) *certList);
-void AGCertificateVerifier::setLocalCAStore(X509_STORE *store);
+void AGCertificateVerifier::setCAStore(STACK_OF(X509) *certList);
+void AGCertificateVerifier::setCAStore(X509_STORE *store);
 ```
 
 #### Update CRL sets file
@@ -57,7 +76,7 @@ This method performs all checks on certification chain except OCSP check.
 AGVerifyResult AGCertificateVerifier::verifyOCSP(
         const std::string &dnsName, STACK_OF(X509) *certChain);
 ```
-This method performs OCSP check.
+This method performs OCSP request.
 ```c++
 AGVerifyResult AGCertificateVerifier::verifyOCSPResponse(
         const std::string &dnsName, STACK_OF(X509) *certChain, OCSP_RESPONSE *ocspResponse);
@@ -77,7 +96,8 @@ int get_ocsp_response(SSL *ssl, void *arg) {
     return 1;
 }
 
-void doSomeThing() {
+void codeThatConnectsToSslServer() {
+...
     OCSP_RESPONSE *ocspResponse = NULL;
     SSL_set_tlsext_status_type(ssl, TLSEXT_STATUSTYPE_ocsp);
     SSL_CTX_set_tlsext_status_cb(ctx, get_ocsp_response);

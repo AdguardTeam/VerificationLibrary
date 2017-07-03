@@ -3,7 +3,11 @@ project(certificate_verifier)
 
 set(CMAKE_CXX_STANDARD 98)
 
+# Require OpenSSL 1.0.2 or higher
 find_package(OpenSSL REQUIRED)
+if(${OPENSSL_VERSION} VERSION_LESS "1.0.2")
+message(FATAL_ERROR "OpenSSL 1.0.2 or higher is required")
+endif()
 
 # Third party libraries
 set(JSMN_DIR third-party/jsmn-c772a0e)
@@ -22,7 +26,9 @@ set(SOURCE_FILES
         src/AGHPKPInfo.cpp
         src/AGStringUtils.h
         src/AGJsonUtils.h
-        src/AGX509StoreUtils.h src/AGDataStorage.cpp src/AGDataStorage.h)
+        src/AGX509StoreUtils.h
+        src/AGDataStorage.h
+        src/AGDataStorage.cpp)
 
 add_library(certificate_verifier SHARED ${THIRD_PARTY_FILES} ${SOURCE_FILES})
 if(UNIX)

@@ -2,7 +2,7 @@
  * This file is part of Adguard certificate verification library
  * (http://github.com/AdguardTeam/VerificationLibrary)
  *
- * Copyright 2017 Performix LLC
+ * Copyright 2017 Adguard Software Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -31,18 +31,66 @@
 struct AGVerifyResult {
 
     enum AGVerifyResultType {
+        /**
+         * Cerification check is passed
+         */
         OK = 0,
-        INVALID_CONFIGURATION,
-        HOST_NAME_MISMATCH,
-        NOT_YET_VALID,
-        EXPIRED,
-        REVOKED,
-        SELF_SIGNED,
-        INVALID_CHAIN,
-        WEAK_HASH,
-        BLACKLISTED_ROOT,
-        PINNING_ERROR,
-        OCSP_FAIL,
+        /**
+         * Verifier was not properly initialized
+         */
+        VERIFIER_NOT_INITIALIZED = 1,
+        /**
+         * Out of memory error
+         */
+        OUT_OF_MEMORY = 2,
+        /**
+         * Host name does not match hostname is certificate
+         */
+        HOST_NAME_MISMATCH = 3,
+        /**
+         * Certificate is not yet valid
+         */
+        NOT_YET_VALID = 4,
+        /**
+         * Certificate is expired
+         */
+        EXPIRED = 5,
+        /**
+         * Certificate is self-signed
+         */
+        SELF_SIGNED = 6,
+        /**
+         * Provided chain is invalid
+         */
+        INVALID_CHAIN = 7,
+        /**
+         * Certificate is revoked (found in CRLSets)
+         */
+        REVOKED_CRLSETS = 8,
+        /**
+         * Certificate is revoked (by info from issuer's OCSP server)
+         */
+        REVOKED_OCSP = 9,
+        /**
+         * Certificate uses SHA1 signature
+         */
+        SIGNED_WITH_SHA1 = 10,
+        /**
+         * Certificate chain contains one of CAs that is no longer trusted by major web browsers
+         */
+        BLACKLISTED_ROOT = 11,
+        /**
+         * HTTP public key pin exists for this site but provided chain does not contain any of pinned public keys.
+         */
+        PINNING_ERROR = 12,
+        /**
+         * OCSP request failed
+         */
+        OCSP_INVALID_RESPONSE = 13,
+        /**
+         * OCSP request failed
+         */
+        OCSP_REQUEST_FAILED = 14,
     };
 
     AGVerifyResultType result;
@@ -65,28 +113,32 @@ struct AGVerifyResult {
         switch (result.result) {
             case OK:
                 return stream << std::string("OK");
-            case INVALID_CONFIGURATION:
-                return stream << std::string("INVALID_CONFIGURATION: ") << result.errorString;
+            case VERIFIER_NOT_INITIALIZED:
+                return stream << std::string("VERIFIER_NOT_INITIALIZED: ") << result.errorString;
+            case OUT_OF_MEMORY:
+                return stream << std::string("OUT_OF_MEMORY: ") << result.errorString;
             case HOST_NAME_MISMATCH:
                 return stream << std::string("HOST_NAME_MISMATCH: ") << result.errorString;
             case NOT_YET_VALID:
                 return stream << std::string("NOT_YET_VALID: ") << result.errorString;
             case EXPIRED:
                 return stream << std::string("EXPIRED: ") << result.errorString;
-            case REVOKED:
-                return stream << std::string("REVOKED: ") << result.errorString;
+            case REVOKED_CRLSETS:
+                return stream << std::string("REVOKED_CRLSETS: ") << result.errorString;
+            case REVOKED_OCSP:
+                return stream << std::string("REVOKED_OCSP: ") << result.errorString;
             case SELF_SIGNED:
                 return stream << std::string("SELF_SIGNED: ") << result.errorString;
             case INVALID_CHAIN:
                 return stream << std::string("INVALID_CHAIN: ") << result.errorString;
-            case WEAK_HASH:
-                return stream << std::string("WEAK_HASH: ") << result.errorString;
+            case SIGNED_WITH_SHA1:
+                return stream << std::string("SIGNED_WITH_SHA1: ") << result.errorString;
             case BLACKLISTED_ROOT:
                 return stream << std::string("BLACKLISTED_ROOT: ") << result.errorString;
             case PINNING_ERROR:
                 return stream << std::string("PINNING_ERROR: ") << result.errorString;
-            case OCSP_FAIL:
-                return stream << std::string("OCSP_FAIL: ") << result.errorString;
+            case OCSP_INVALID_RESPONSE:
+                return stream << std::string("OCSP_INVALID_RESPONSE: ") << result.errorString;
         }
     }
 };
@@ -98,8 +150,8 @@ class AGCertificateVerifier {
 public:
 
     /**
-     * Create certificate verifier with given storage path
-     * @param storage Data storage
+     * Create Adguard certificate verifier
+     * @param storagePath Path to verifier database (HPKP info)
      */
     AGCertificateVerifier(AGDataStorage *storage);
     virtual ~AGCertificateVerifier();
@@ -108,57 +160,80 @@ public:
      * Verify specified certificate chain
      * @param dnsName Host name
      * @param certChain Certificate chain
-     * @return True if verified, false otherwise
+     * @return Verify result
      */
     AGVerifyResult verify(const std::string &dnsName, STACK_OF(X509) *certChain);
 
     /**
-     * Set local CA store of verifier to specified certificate list
+     * Set CA store of verifier to specified certificate list
      * @param certList Certificate list
      */
-    void setLocalCAStore(STACK_OF(X509) *certList);
+    void setCAStore(STACK_OF(X509) *certList);
 
     /**
-     * Set local CA store of verifier to specified certificate store
+     * Set CA store of verifier to specified certificate store
      * @param certStore Certificate store
      */
-    void setLocalCAStore(X509_STORE *store);
+    void setCAStore(X509_STORE *store);
 
     // Persistent storage operations
 
     /**
-     * Fetch current CA store currently used in SSL clients
-     */
-    void updateCurrentCAStore(){}
-
-    /**
-     * Fetch updated CRLSets Chromium extension file.
+     * Save CRLSets CRX file to verifier storage.
+     *
+     * CRLSets are used for certificate revocation checks.
+     *
+     * CRLSets CRX file is CRX (Chromium extension) containing file named "crl-set".
+     * CRX file format: https://developer.chrome.com/extensions/crx
+     * CRLSets file format: https://chromium.googlesource.com/experimental/chromium/src/+/master/net/cert/crl_set_storage.cc
+     *
+     * You may get CRLSets generated by Google Inc.:
+     * - CRLSets CRX extension id: hfnkpimlhhgieaddgfemjhofmfblmnib
+     * - CRLSets CRX download URL: http://clients2.google.com/service/update2/crx?response=redirect&x=id%3Dhfnkpimlhhgieaddgfemjhofmfblmnib%26v=%26uc
+     * or use your own set (properly encoded).
      */
     void updateCRLSets(const char *crlSetCrx, size_t crlSetCrxLen);
 
     /**
-     * Fetch updated HPKP pins.
-     */
-    void updateStaticHPKPInfo(){}
-
-    /**
-     * Add HPKP info from HPKP HTTP header
+     * Add HPKP info from HPKP HTTP header to verifier storage.
+     *
+     * This method should be called by HTTP client while processing HTTP response.
+     *
      * @param dnsName Host name
      * @param certChain Certificate chain
-     * @param header HTTP header name
-     * @param value HTTP header value
+     * @param httpHeaderName HTTP header name
+     * @param httpHeaderValue HTTP header value
      */
-    void updateHPKPInfo(const std::string &dnsName, STACK_OF(X509) *certChain, const std::string &header, const std::string &value);
+    void updateHPKPInfo(const std::string &dnsName, STACK_OF(X509) *certChain, const std::string &httpHeaderName, const std::string &httpHeaderValue);
 
+    // OCSP checks
+
+    /**
+     * Verify OCSP response for leaf certificate OCSP check (OpenSSL OCSP_RESPONSE structure).
+     *
+     * This method may be used to verify stapled OCSP response.
+     *
+     * Full certificate chain is needed to check OCSP response signature.
+     *
+     * @param dnsName Host name
+     * @param certChain Certificate chain
+     * @param response
+     * @return
+     */
     AGVerifyResult verifyOCSPResponse(const std::string &dnsName, STACK_OF(X509) *certChain, OCSP_RESPONSE *response);
 
+    /**
+     * Perform an OCSP request for leaf certificate and verify its result.
+     *
+     * Full certificate chain is needed to check OCSP response signature.
+     */
     AGVerifyResult verifyOCSP(const std::string &dnsName, STACK_OF(X509) *certChain);
 private:
     // System CA store
     X509_STORE *caStore;
-    // Mozilla CA store
+    // Mozilla CA store (used for disabling HPKP checks if there is local (user-added) root certificate in chain)
     X509_STORE *mozillaCaStore;
-    // Mozilla Untrusted CAs store
+    // Mozilla Untrusted CAs store (used to check against CAs that no longer trusted by major web browsers)
     X509_STORE *mozillaUntrustedCaStore;
     // CRLSet digest list
     std::set<std::string> revokedSHADigests;
@@ -189,11 +264,11 @@ private:
 
     AGVerifyResult verifyPins(const std::string &dnsName, STACK_OF(X509) *certChain);
 
-    AGVerifyResult verifyRevocations(STACK_OF(X509) *certChain);
+    AGVerifyResult verifyCrlSetsStatus(STACK_OF(X509) *certChain);
 
     AGVerifyResult verifyUntrustedAuthority(STACK_OF(X509) *certChain);
 
-    AGVerifyResult verifyWeakHashAlgorithm(X509_STORE_CTX *ctx);
+    AGVerifyResult verifyDeprecatedSha1Signature(X509_STORE_CTX *ctx);
 
     void saveDynamicHPKPInfo();
 

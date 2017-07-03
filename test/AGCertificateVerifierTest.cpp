@@ -2,7 +2,7 @@
  * This file is part of Adguard certificate verification library
  * (http://github.com/AdguardTeam/VerificationLibrary)
  *
- * Copyright 2017 Performix LLC
+ * Copyright 2017 Adguard Software Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -41,8 +41,8 @@ TestParam tests[] = {
         {"wrong.host.badssl.com", AGVerifyResult::HOST_NAME_MISMATCH},
         {"self-signed.badssl.com", AGVerifyResult::SELF_SIGNED},
         {"untrusted-root.badssl.com", AGVerifyResult::INVALID_CHAIN},
-        {"revoked.badssl.com", AGVerifyResult::REVOKED},
-        {"sha1-intermediate.badssl.com", AGVerifyResult::WEAK_HASH},
+        {"revoked.badssl.com", AGVerifyResult::REVOKED_CRLSETS},
+        {"sha1-intermediate.badssl.com", AGVerifyResult::SIGNED_WITH_SHA1},
         {"pinning-test.badssl.com", AGVerifyResult::PINNING_ERROR},
 };
 
@@ -155,7 +155,7 @@ int get_ocsp_response(SSL *ssl, void *arg) {
 
 TestParam ocspReqTests[] = {
         {"www.yahoo.com", AGVerifyResult::OK},
-        {"revoked.grc.com", AGVerifyResult::REVOKED},
+        {"revoked.grc.com", AGVerifyResult::REVOKED_OCSP},
 };
 
 class AGCertificateVerifierTestOcspForHost : public ::testing::TestWithParam<TestParam> {
