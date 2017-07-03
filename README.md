@@ -1,6 +1,6 @@
 # Certificate Verification Library
 
-[![Build Status](https://travis-ci.org/sfionov/VerificationLibrary.svg?branch=master)](https://travis-ci.org/sfionov/VerificationLibrary)
+[![Build Status](https://travis-ci.org/AdguardTeam/VerificationLibrary.svg?branch=master)](https://travis-ci.org/AdguardTeam/VerificationLibrary)
 
 This repository contains verification library with support of CRLSets, HPKP, OCSP and SHA1 deprecation checks.
 

@@ -1,6 +1,6 @@
 /*
  * This file is part of Adguard certificate verification library
- * (http://github.com/AdguardTeam/Verification)
+ * (http://github.com/AdguardTeam/VerificationLibrary)
  *
  * Copyright 2017 Performix LLC
  *
