@@ -5,6 +5,7 @@ set(CMAKE_CXX_STANDARD 98)
 link_libraries(certificate_verifier gtest_main ${OPENSSL_LIBRARIES})
 include_directories(${OPENSSL_INCLUDE_DIR})
 
+add_executable(test_verifier AGCertificateVerifierTest.cpp)
 if(UNIX AND NOT APPLE)
 set(CRL_SET_OBJ "AGCertificateVerifierTestCrlSet.o")
 set(CRL_SET_BIN "AGCertificateVerifierTestCrlSet.bin")
@@ -17,9 +18,6 @@ add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${CRL_SET_OBJ}"
         COMMAND ld -r -b binary -o "${CRL_SET_OBJ}" "${CRL_SET_BIN}"
         COMMAND objcopy --rename-section .data=.rodata,alloc,load,readonly,data,contents "${CRL_SET_OBJ}" "${CRL_SET_OBJ}"
         WORKING_DIRECTORY ${CURRENT_CURRENT_BINARY_DIR})
-endif()
-
-add_executable(test_verifier AGCertificateVerifierTest.cpp)
-
 target_link_libraries(test_verifier test_verifier_crl_set_blob)
+endif()
 add_test(test_verifier test_verifier)

@@ -151,9 +151,10 @@ public:
 
     /**
      * Create Adguard certificate verifier
-     * @param storagePath Path to verifier database (HPKP info)
+     * @param storage Verifier storage implementation
      */
     AGCertificateVerifier(AGDataStorage *storage);
+
     virtual ~AGCertificateVerifier();
 
     /**
@@ -191,13 +192,23 @@ public:
      * - CRLSets CRX extension id: hfnkpimlhhgieaddgfemjhofmfblmnib
      * - CRLSets CRX download URL: http://clients2.google.com/service/update2/crx?response=redirect&x=id%3Dhfnkpimlhhgieaddgfemjhofmfblmnib%26v=%26uc
      * or use your own set (properly encoded).
+     *
+     * @param crlSetCrxContent CRLSets CRX file content
+     * @param crlSetCrxLen CRLSets CRX file length
      */
-    void updateCRLSets(const char *crlSetCrx, size_t crlSetCrxLen);
+    void updateCRLSets(const char *crlSetCrxContent, size_t crlSetCrxLen);
 
     /**
-     * Add HPKP info from HPKP HTTP header to verifier storage.
+     * Add HTTP public key pinning info (HPKP) from HTTP header.
      *
-     * This method should be called by HTTP client while processing HTTP response.
+     * This method should be called by HTTP client while processing HTTP response, when
+     * there is an HTTP header "Public-Key-Pins" or "Public-Key-Pins-Report-Only".
+     *
+     * This information may after be used by verify() method to perform key pinning checks.
+     *
+     * Links with info about how HPKP works:
+     * https://en.wikipedia.org/wiki/HTTP_Public_Key_Pinning
+     * https://developer.mozilla.org/en-US/docs/Web/HTTP/Public_Key_Pinning
      *
      * @param dnsName Host name
      * @param certChain Certificate chain
@@ -262,7 +273,7 @@ private:
 
     AGVerifyResult verifyChain(X509_STORE *store, STACK_OF(X509) *certChain);
 
-    AGVerifyResult verifyPins(const std::string &dnsName, STACK_OF(X509) *certChain);
+    AGVerifyResult verifyHttpPublicKeyPins(const std::string &dnsName, STACK_OF(X509) *certChain);
 
     AGVerifyResult verifyCrlSetsStatus(STACK_OF(X509) *certChain);
 

@@ -22,12 +22,15 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include "../src/AGCertificateVerifier.h"
+#include "../src/AGStringUtils.h"
 
+#if __linux__
 extern "C" {
 extern char _binary_AGCertificateVerifierTestCrlSet_bin_start;
 extern char _binary_AGCertificateVerifierTestCrlSet_bin_size;
 extern char _binary_AGCertificateVerifierTestCrlSet_bin_end;
 }
+#endif
 
 struct TestParam {
     std::string hostName;
@@ -41,7 +44,9 @@ TestParam tests[] = {
         {"wrong.host.badssl.com", AGVerifyResult::HOST_NAME_MISMATCH},
         {"self-signed.badssl.com", AGVerifyResult::SELF_SIGNED},
         {"untrusted-root.badssl.com", AGVerifyResult::INVALID_CHAIN},
+#if __linux__
         {"revoked.badssl.com", AGVerifyResult::REVOKED_CRLSETS},
+#endif
         {"sha1-intermediate.badssl.com", AGVerifyResult::SIGNED_WITH_SHA1},
         {"pinning-test.badssl.com", AGVerifyResult::PINNING_ERROR},
 };
@@ -50,13 +55,20 @@ class AGCertificateVerifierTestForHost : public ::testing::TestWithParam<TestPar
 
 protected:
     virtual void SetUp() {
-        storage = new AGSimpleDirectoryStorage("/tmp");
+        char dirNameTemp[256] = "/tmp/verifier-test.XXXXXX";
+        dirName = mktemp(dirNameTemp);
+        mkdir(dirName.c_str(), 0755);
+        storage = new AGSimpleDirectoryStorage(dirName);
     }
 
     virtual void TearDown() {
         delete storage;
+        unlink((dirName + "/crl-set.bin").c_str());
+        unlink((dirName + "/hpkp-info.bin").c_str());
+        rmdir(dirName.c_str());
     }
 
+    std::string dirName;
     AGDataStorage *storage;
 };
 
@@ -124,8 +136,10 @@ TEST_P(AGCertificateVerifierTestForHost, testHost) {
     }
 
     AGCertificateVerifier verifier(storage);
+#if __linux__
     verifier.updateCRLSets(&_binary_AGCertificateVerifierTestCrlSet_bin_start,
                            &_binary_AGCertificateVerifierTestCrlSet_bin_end - &_binary_AGCertificateVerifierTestCrlSet_bin_start);
+#endif
     AGVerifyResult result = verifier.verify(test.hostName, SSL_get_peer_cert_chain(ssl));
     std::cout << "Result: " << result << std::endl;
     ASSERT_TRUE(result == test.result);
@@ -162,13 +176,20 @@ class AGCertificateVerifierTestOcspForHost : public ::testing::TestWithParam<Tes
 
 protected:
     virtual void SetUp() {
-        storage = new AGSimpleDirectoryStorage("/tmp");
+        char dirNameTemp[256] = "/tmp/verifier-test.XXXXXX";
+        dirName = mktemp(dirNameTemp);
+        mkdir(dirName.c_str(), 0755);
+        storage = new AGSimpleDirectoryStorage(dirName);
     }
 
     virtual void TearDown() {
         delete storage;
+        unlink((dirName + "/crl-set.bin").c_str());
+        unlink((dirName + "/hpkp-info.bin").c_str());
+        rmdir(dirName.c_str());
     }
 
+    std::string dirName;
     AGDataStorage *storage;
 };
 
@@ -265,3 +286,104 @@ TEST_P(AGCertificateVerifierTestOcspForHost, testOCSPRequest) {
 }
 
 INSTANTIATE_TEST_CASE_P(OCSP, AGCertificateVerifierTestOcspForHost, ::testing::ValuesIn(ocspReqTests));
+
+class AGHPKPTest : public testing::Test {
+
+protected:
+    virtual void SetUp() {
+        char dirNameTemp[256] = "/tmp/verifier-test.XXXXXX";
+        dirName = mktemp(dirNameTemp);
+        mkdir(dirName.c_str(), 0755);
+        storage = new AGSimpleDirectoryStorage(dirName);
+    }
+
+    virtual void TearDown() {
+        delete storage;
+        unlink((dirName + "/crl-set.bin").c_str());
+        unlink((dirName + "/hpkp-info.bin").c_str());
+        rmdir(dirName.c_str());
+    }
+
+    std::string dirName;
+    AGDataStorage *storage;
+};
+
+TEST_F(AGHPKPTest, TestHPKPPin) {
+
+    std::string hostName1 = "projects.dm.id.lv";
+    std::string hostName2 = "pkptest.projects.dm.id.lv";
+
+    SSL_library_init();
+
+    SSL_CTX *ctx = SSL_CTX_new(SSLv23_method());
+    ASSERT_TRUE(ctx != NULL);
+
+    SSL_CTX_set_default_verify_paths(ctx);
+
+    BIO *web = BIO_new_ssl_connect(ctx);
+    ASSERT_TRUE(web != NULL);
+
+    long res = BIO_set_conn_hostname(web, (hostName1 + ":443").c_str());
+    ASSERT_TRUE(res == 1);
+
+    SSL *ssl;
+    BIO_get_ssl(web, &ssl);
+    ASSERT_TRUE(ssl != NULL);
+
+    res = SSL_set_tlsext_host_name(ssl, hostName1.c_str());
+    ASSERT_TRUE(res == 1);
+
+    res = BIO_do_handshake(web);
+    ASSERT_TRUE(res == 1);
+
+    AGCertificateVerifier verifier = AGCertificateVerifier(storage);
+
+    std::string request = "GET / HTTP/1.1\r\nHost: " + hostName1 + "\r\n\r\n";
+    res = BIO_write(web, request.c_str(), (int) request.size());
+    ASSERT_TRUE(res == request.size());
+
+    char response[1024];
+    int r = BIO_read(web, response, sizeof(response));
+    std::string responseData(response, r);
+    std::vector<std::string> responseStrings = AGStringUtils::split(responseData, "\r\n");
+    for (std::vector<std::string>::const_iterator i = responseStrings.begin(); i != responseStrings.end(); i++) {
+        const std::string &responseString = *i;
+        if (AGStringUtils::toLower(responseString).find("public-key-pins") != std::string::npos) {
+            unsigned long pos = responseString.find(":");
+            if (pos == std::string::npos) {
+                continue;
+            }
+            std::string header = responseString.substr(0, pos - 1);
+            std::string value = responseString.substr(pos + 1);
+            verifier.updateHPKPInfo(hostName1, SSL_get_peer_cert_chain(ssl), header, value);
+        }
+    }
+
+
+    BIO_free_all(web);
+
+    web = BIO_new_ssl_connect(ctx);
+    ASSERT_TRUE(web != NULL);
+
+    res = BIO_set_conn_hostname(web, (hostName2 + ":443").c_str());
+    ASSERT_TRUE(res == 1);
+
+    BIO_get_ssl(web, &ssl);
+    ASSERT_TRUE(ssl != NULL);
+
+    res = SSL_set_tlsext_host_name(ssl, hostName2.c_str());
+    ASSERT_TRUE(res == 1);
+
+    res = BIO_do_handshake(web);
+    ASSERT_TRUE(res == 1);
+
+    AGVerifyResult result = verifier.verify(hostName2, SSL_get_peer_cert_chain(ssl));
+    std::cout << "Result: " << result << std::endl;
+    ASSERT_TRUE(result.result == AGVerifyResult::PINNING_ERROR);
+
+    if(web != NULL)
+        BIO_free_all(web);
+
+    if(NULL != ctx)
+        SSL_CTX_free(ctx);
+}

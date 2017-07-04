@@ -27,8 +27,8 @@ void f() {
     ...
     // Connect to TLS server here
     ...
-    STACK_OF(X509) *certChain = SSL_get_peer_cert_chain();
-    AGVerifierResult result = verifier.verify("google.com", certChain);
+    STACK_OF(X509) *certChain = SSL_get_peer_cert_chain(ssl);
+    AGVerifyResult result = verifier.verify("google.com", certChain);
     if (result != OK) {
         std::clog << result << std::endl;
         abort();

@@ -25,7 +25,9 @@
 
 typedef std::vector<std::string> StrList;
 
-AGHPKPInfo::AGHPKPInfo(const std::string &headerValue) {
+AGHPKPInfo::AGHPKPInfo(const std::string &hostName, const std::string &headerValue)
+        : hostName(hostName)
+{
     parseHeader(headerValue);
 }
 
@@ -40,7 +42,7 @@ void AGHPKPInfo::parseHeader(const std::string &headerValue) {
 void AGHPKPInfo::parseDirective(const std::string &directive) {
     size_t pos = directive.find_first_of("=");
     std::string name = AGStringUtils::toLower(directive.substr(0, pos));
-    std::string value = pos != std::string::npos ? directive.substr(pos) : "";
+    std::string value = pos != std::string::npos ? directive.substr(pos + 1) : "";
     value = AGStringUtils::trim(value);
     if (value.size() >= 2 && value[0] == '"') {
         if (value[value.size() - 1] == '"') {
@@ -59,11 +61,9 @@ void AGHPKPInfo::parseDirective(const std::string &directive) {
         if (!in.fail()) {
             expirationDate += seconds;
         }
-    }
-    if (name == "includesubdomains") {
+    } else if (name == "includesubdomains") {
         includeSubDomains = true;
     }
-
 }
 
 bool AGHPKPInfo::hasPinsInChain(STACK_OF(X509) *certChain) const {

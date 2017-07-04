@@ -48,40 +48,31 @@ void AGCertificateVerifier::loadStaticHPKPInfo() {
         info.includeSubDomains = mInfo->mIncludeSubdomains;
         info.expirationDate = mozilla::kPreloadPKPinsExpirationTime / 1000;
     }
-    /*
-    for (std::map<std::string, AGHPKPInfo>::const_iterator it = staticHPKPInfo.begin(); it != staticHPKPInfo.end(); it++) {
-        std::clog << it->second.serialize() << std::endl;
-    }*/
+}
+
+template<class T> void loadCAStoreStaticData(X509_STORE *caStore, T ca_certificates, const int ca_certificates_len) {
+    for (int i = 0; i < ca_certificates_len; i++) {
+        const unsigned char *ca_data_pos = ca_certificates[i].ca_data;
+        X509 *cert = d2i_X509(NULL,
+                              &ca_data_pos,
+                              ca_certificates[i].ca_data_len);
+        if (cert) {
+            X509_STORE_add_cert(caStore, cert);
+            X509_free(cert);
+        }
+    }
 }
 
 /**
- * Load Mozilla CA store from header
+ * Load Mozilla CA store from precompiler header data
  */
 void AGCertificateVerifier::loadMozillaCAStore() {
-    if (mozillaCaStore) {
-        X509_STORE_free(mozillaCaStore);
-    }
-
     mozillaCaStore = X509_STORE_new();
-    for (int i = 0; i < mozilla::ca_certificates_trusted_delegator_len; i++) {
-        const unsigned char *ca_data_pos = mozilla::ca_certificates_trusted_delegator[i].ca_data;
-        X509 *cert = d2i_X509(NULL,
-                              &ca_data_pos,
-                              mozilla::ca_certificates_trusted_delegator[i].ca_data_len);
-        if (cert) {
-            X509_STORE_add_cert(mozillaCaStore, cert);
-            X509_free(cert);
-        }
-    }
+    loadCAStoreStaticData(mozillaCaStore,
+                          mozilla::ca_certificates_trusted_delegator,
+                          mozilla::ca_certificates_trusted_delegator_len);
     mozillaUntrustedCaStore = X509_STORE_new();
-    for (int i = 0; i < mozilla::ca_certificates_not_trusted_len; i++) {
-        const unsigned char *ca_data_pos = mozilla::ca_certificates_not_trusted[i].ca_data;
-        X509 *cert = d2i_X509(NULL,
-                              &ca_data_pos,
-                              mozilla::ca_certificates_not_trusted[i].ca_data_len);
-        if (cert) {
-            X509_STORE_add_cert(mozillaUntrustedCaStore, cert);
-            X509_free(cert);
-        }
-    }
+    loadCAStoreStaticData(mozillaUntrustedCaStore,
+                          mozilla::ca_certificates_not_trusted,
+                          mozilla::ca_certificates_not_trusted_len);
 }

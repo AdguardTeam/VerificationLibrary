@@ -45,7 +45,7 @@ static const std::string HPKP_INFO_FILE = "hpkp-info.bin";
 
 /**
  * Create Adguard certificate verifier
- * @param storagePath Path to verifier database (HPKP info)
+ * @param storage Verifier storage implementation
  */
 AGCertificateVerifier::AGCertificateVerifier(AGDataStorage *storage)
         : caStore(NULL),
@@ -122,7 +122,7 @@ AGVerifyResult AGCertificateVerifier::verify(const std::string &dnsName, STACK_O
         return res;
     }
     // HPKP check
-    res = verifyPins(dnsName, certChain);
+    res = verifyHttpPublicKeyPins(dnsName, certChain);
     if (!res.isOk()) {
         return res;
     }
@@ -156,7 +156,7 @@ void AGCertificateVerifier::setCAStore(X509_STORE *store) {
 }
 
 /**
- * Clears local CA store
+ * Clears CA store of verifier
  */
 void AGCertificateVerifier::clearCAStore() {
     if (caStore) {
@@ -189,7 +189,10 @@ AGVerifyResult AGCertificateVerifier::verifyDNSName(const std::string &dnsName, 
 }
 
 /**
- * Verify that certificate chain is valid
+ * Verify that certificate chain is valid - all signatures in chain are correct, anchor certificate is in the CA store,
+ * all certificates in chain are already valid and not expired and does not use SHA1 signature (only anchor certificates
+ * are allowed to use SHA1).
+ *
  * @param store CA store
  * @param certChain Certificate chain
  * @return Verify result
@@ -237,12 +240,16 @@ AGVerifyResult AGCertificateVerifier::verifyChain(X509_STORE *store, STACK_OF(X5
 }
 
 /**
- * Verify that certificate matches HPKP pins to hostname
+ * Verify that certificate chain matches HTTP public key pins for hostname.
+ *
+ * Public key pins are added to or updated in verifier database by calling updateHPKPInfo() method.
+ * @see AGCertificateVerifier#updateHPKPInfo
+ *
  * @param dnsName Hostname
  * @param certChain Certificate chain
  * @return Verify result
  */
-AGVerifyResult AGCertificateVerifier::verifyPins(const std::string &dnsName, STACK_OF(X509) *certChain) {
+AGVerifyResult AGCertificateVerifier::verifyHttpPublicKeyPins(const std::string &dnsName, STACK_OF(X509) *certChain) {
     // Don't check pins for local root CA
     if (!verifyChain(mozillaCaStore, certChain).isOk()) {
         return AGVerifyResult(AGVerifyResult::OK, "Certificate passed basic checks but issued by non-standard CA, skipping pinning test");
@@ -295,9 +302,12 @@ AGVerifyResult AGCertificateVerifier::verifyPins(const std::string &dnsName, STA
  * - CRLSets CRX extension id: hfnkpimlhhgieaddgfemjhofmfblmnib
  * - CRLSets CRX download URL: http://clients2.google.com/service/update2/crx?response=redirect&x=id%3Dhfnkpimlhhgieaddgfemjhofmfblmnib%26v=%26uc
  * or use your own set.
+ *
+ * @param crlSetCrxContent CRLSets CRX file content
+ * @param crlSetCrxLen CRLSets CRX file length
  */
-void AGCertificateVerifier::updateCRLSets(const char *crlSetCrx, size_t crlSetCrxLen) {
-    storage->saveData(CRL_SET_CRX_FILE, std::string(crlSetCrx, crlSetCrxLen));
+void AGCertificateVerifier::updateCRLSets(const char *crlSetCrxContent, size_t crlSetCrxLen) {
+    storage->saveData(CRL_SET_CRX_FILE, std::string(crlSetCrxContent, crlSetCrxLen));
     loadCRLSets();
 }
 
@@ -309,7 +319,12 @@ static std::string certHashBase64(X509 *cert) {
 }
 
 /**
- * Verify that certificate is not revoked. Lookup is performed in CRLSets
+ * Verify that certificate is not revoked. Lookup is performed in CRLSets.
+ *
+ * If CRLSets file data is not present in verifier storage, this method returns success.
+ *
+ * Please use updateCrlSets() method to save CRLSets file data.
+ *
  * @param certChain Certificate chain
  * @return Verify result
  */
@@ -486,7 +501,7 @@ void AGCertificateVerifier::updateHPKPInfo(
         // TODO: Add support for report URI
         return;
     }
-    AGHPKPInfo info = AGHPKPInfo(httpHeaderValue);
+    AGHPKPInfo info = AGHPKPInfo(dnsName, httpHeaderValue);
     if (!info.isValid()) {
         return;
     }
@@ -518,7 +533,9 @@ AGVerifyResult AGCertificateVerifier::verifyUntrustedAuthority(STACK_OF(X509) *c
 }
 
 /**
- * Verify that certificate does not use SHA1 signature hash algorithm.
+ * Verify that certificate chain does not contain certificates signed with SHA1 algorithm.
+ *
+ * Only anchor CAs are currently allowed to use SHA1 signature.
  *
  * Verifies only certificates issued after October, 2016.
  * Another weak hash algorithms (MD2/4/5) are already untrusted by OpenSSL.
@@ -873,8 +890,9 @@ static OCSP_RESPONSE *query_responder(BIO *err, BIO *cbio, const char *path,
     fd_set confds;
     struct timeval tv;
 
-    if (req_timeout != -1)
+    if (req_timeout != -1) {
         BIO_set_nbio(cbio, 1);
+    }
 
     rv = BIO_do_connect(cbio);
 
@@ -901,8 +919,9 @@ static OCSP_RESPONSE *query_responder(BIO *err, BIO *cbio, const char *path,
     }
 
     ctx = OCSP_sendreq_new(cbio, (char *)path, NULL, -1);
-    if (!ctx)
+    if (!ctx) {
         return NULL;
+    }
 
     for (i = 0; i < sk_CONF_VALUE_num(headers); i++) {
         CONF_VALUE *hdr = sk_CONF_VALUE_value(headers, i);
@@ -910,8 +929,9 @@ static OCSP_RESPONSE *query_responder(BIO *err, BIO *cbio, const char *path,
             goto err;
     }
 
-    if (!OCSP_REQ_CTX_set1_req(ctx, req))
+    if (!OCSP_REQ_CTX_set1_req(ctx, req)) {
         goto err;
+    }
 
     for (;;) {
         rv = OCSP_sendreq_nbio(&rsp, ctx);
@@ -942,8 +962,9 @@ static OCSP_RESPONSE *query_responder(BIO *err, BIO *cbio, const char *path,
 
     }
     err:
-    if (ctx)
+    if (ctx) {
         OCSP_REQ_CTX_free(ctx);
+    }
 
     return rsp;
 }

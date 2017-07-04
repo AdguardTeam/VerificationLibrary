@@ -38,7 +38,7 @@ struct AGHPKPInfo {
 
     AGHPKPInfo() : expirationDate(0) {}
 
-    AGHPKPInfo(const std::string &headerValue);
+    AGHPKPInfo(const std::string &hostName, const std::string &headerValue);
 
     void parseHeader(const std::string &headerValue);
 
