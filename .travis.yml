@@ -1,0 +1,17 @@
+language: cpp
+
+script:
+  - cd third-party && wget -nv https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz && tar xf openssl-${OPENSSL_VERSION}.tar.gz && cd openssl-${OPENSSL_VERSION}
+  - ./config --openssldir=/etc/ssl shared > buildlog 2>&1 || (echo "Configure OpenSSL exit code - $?" && cat buildlog && false)
+  - make -j`nproc` >> buildlog 2>&1 || (echo "Make OpenSSL exit code - $?" && cat buildlog && false)
+  - cd ../.. && mkdir -p build && cd build
+  - cmake -DOPENSSL_ROOT_DIR=${PWD}/../third-party/openssl-${OPENSSL_VERSION} -DCMAKE_BUILD_TYPE=Debug ..
+  - cmake --build .
+  - test/test_verifier
+
+dist: trusty
+
+matrix:
+  include:
+    - env: OPENSSL_VERSION=1.1.0f
+    - env: OPENSSL_VERSION=1.0.2l
