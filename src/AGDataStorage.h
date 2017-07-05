@@ -33,6 +33,7 @@ public:
      * Saves given data to storage
      * @param[in] name Key name in ASCII encoding
      * @param[in] value Data
+     * @return True if data was successfully saved
      */
     virtual bool saveData(const std::string &name, const std::string &value) = 0;
 

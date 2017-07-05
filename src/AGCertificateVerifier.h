@@ -139,6 +139,8 @@ struct AGVerifyResult {
                 return stream << std::string("PINNING_ERROR: ") << result.errorString;
             case OCSP_INVALID_RESPONSE:
                 return stream << std::string("OCSP_INVALID_RESPONSE: ") << result.errorString;
+            case OCSP_REQUEST_FAILED:
+                return stream << std::string("OCSP_REQUEST_FAILED: ") << result.errorString;
         }
     }
 };
