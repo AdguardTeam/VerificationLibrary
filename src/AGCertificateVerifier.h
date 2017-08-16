@@ -142,6 +142,7 @@ struct AGVerifyResult {
             case OCSP_REQUEST_FAILED:
                 return stream << std::string("OCSP_REQUEST_FAILED: ") << result.errorString;
         }
+        return stream;
     }
 };
 

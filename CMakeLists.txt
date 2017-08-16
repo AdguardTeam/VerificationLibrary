@@ -30,7 +30,7 @@ set(SOURCE_FILES
         src/AGDataStorage.h
         src/AGDataStorage.cpp)
 
-add_library(certificate_verifier SHARED ${THIRD_PARTY_FILES} ${SOURCE_FILES})
+add_library(certificate_verifier STATIC ${THIRD_PARTY_FILES} ${SOURCE_FILES})
 if(UNIX)
     set_source_files_properties(${THIRD_PARTY_FILES} COMPILE_FLAGS "-fvisibility=hidden")
 endif(UNIX)

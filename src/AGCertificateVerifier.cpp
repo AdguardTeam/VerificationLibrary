@@ -463,7 +463,7 @@ void AGCertificateVerifier::loadCRLSets() {
         BCHECK(pos >= end);
         // Serial number list
         std::set<std::string> &serialList = issuerSHADigestToCRL[issuerSHADigest];
-        for (int i = 0; i < serialCount; i++) {
+        for (uint32_t i = 0; i < serialCount; i++) {
             // Serial number size - 1 byte
             uint8_t serialSize = *pos++;
             BCHECK(pos >= end);
@@ -592,9 +592,10 @@ AGVerifyResult AGCertificateVerifier::verifyDeprecatedSha1Signature(X509_STORE_C
                 if (AGX509StoreUtils::lookupInCtx(ctx, cert)) {
                     continue;
                 } else {
+                    char subject[256] = "";
+                    X509_NAME_oneline(X509_get_subject_name(cert), subject, sizeof(subject));
                     sk_X509_free(ctxChain);
-                    char *subject = X509_NAME_oneline(X509_get_subject_name(cert), NULL, 0);
-                    return AGVerifyResult(AGVerifyResult::SIGNED_WITH_SHA1, "Detected SHA1 intermediate certificate: " + std::string(subject));
+                    return AGVerifyResult(AGVerifyResult::SIGNED_WITH_SHA1, std::string("Detected SHA1 intermediate certificate: ") + subject);
                 }
             }
         }

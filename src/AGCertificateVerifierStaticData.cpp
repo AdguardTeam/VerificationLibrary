@@ -42,7 +42,7 @@ void AGCertificateVerifier::loadStaticHPKPInfo() {
         const mozilla::TransportSecurityPreload *mInfo = &mozilla::kPublicKeyPinningPreloadList[i];
         AGHPKPInfo &info = staticHPKPInfo[mInfo->mHost];
         info.hostName = mInfo->mHost;
-        for (int j = 0; j < mInfo->pinset->size; j++) {
+        for (size_t j = 0; j < mInfo->pinset->size; j++) {
             info.pkPins.insert(mInfo->pinset->data[j]);
         }
         info.includeSubDomains = mInfo->mIncludeSubdomains;
