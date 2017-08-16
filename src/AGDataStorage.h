@@ -47,10 +47,11 @@ public:
 
 };
 
+class
 #ifdef __cpp_attributes
 [[deprecated("For testing only. Implement your own secure storage for a certain platform")]]
 #endif
-class AGSimpleDirectoryStorage : public AGDataStorage {
+AGSimpleDirectoryStorage : public AGDataStorage {
 public:
     AGSimpleDirectoryStorage(const std::string storagePath);
 
