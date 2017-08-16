@@ -17,6 +17,8 @@
  * limitations under the License.
  */
 
+#include <sys/select.h> // for select()
+
 #include <bitset>
 #include <iostream>
 #include <fstream>
