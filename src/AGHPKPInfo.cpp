@@ -73,7 +73,8 @@ bool AGHPKPInfo::hasPinsInChain(STACK_OF(X509) *certChain) const {
         uint8_t hash[32];
         uint32_t hash_len;
         ASN1_item_digest(ASN1_ITEM_rptr(X509_PUBKEY), EVP_sha256(), X509_get_X509_PUBKEY(cert), hash, &hash_len);
-        if (pkPins.count(AGStringUtils::encodeToBase64(hash, hash_len))) {
+        std::string spkiHash = AGStringUtils::encodeToBase64(hash, hash_len);
+        if (pkPins.count(spkiHash)) {
             return true;
         }
     }

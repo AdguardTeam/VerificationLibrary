@@ -274,9 +274,10 @@ private:
 
     AGVerifyResult verifyDNSName(const std::string &dnsName, STACK_OF(X509) *certChain);
 
-    AGVerifyResult verifyChain(X509_STORE *store, STACK_OF(X509) *certChain);
+    AGVerifyResult verifyChain(X509_STORE *store, STACK_OF(X509) *certChain,
+                               const std::string &dnsName, bool basicCheckOnly);
 
-    AGVerifyResult verifyHttpPublicKeyPins(const std::string &dnsName, STACK_OF(X509) *certChain);
+    AGVerifyResult verifyHttpPublicKeyPins(const std::string &dnsName, X509_STORE_CTX *ctx);
 
     AGVerifyResult verifyCrlSetsStatus(STACK_OF(X509) *certChain);
 

@@ -40,6 +40,7 @@ struct TestParam {
 TestParam tests[] = {
         {"www.google.com", AGVerifyResult::OK},
         {"badssl.com", AGVerifyResult::OK},
+        {"twitter.com", AGVerifyResult::OK},
         {"expired.badssl.com", AGVerifyResult::EXPIRED},
         {"wrong.host.badssl.com", AGVerifyResult::HOST_NAME_MISMATCH},
         {"self-signed.badssl.com", AGVerifyResult::SELF_SIGNED},

@@ -107,7 +107,7 @@ AGVerifyResult AGCertificateVerifier::verify(const std::string &dnsName, STACK_O
     }
 
     // Check chain (including SHA1 deprecation check)
-     res = verifyChain(caStore, certChain);
+    res = verifyChain(caStore, certChain, dnsName, false);
     if (!res.isOk()) {
         return res;
     }
@@ -123,11 +123,7 @@ AGVerifyResult AGCertificateVerifier::verify(const std::string &dnsName, STACK_O
     if (!res.isOk()) {
         return res;
     }
-    // HPKP check
-    res = verifyHttpPublicKeyPins(dnsName, certChain);
-    if (!res.isOk()) {
-        return res;
-    }
+
     return res;
 }
 
@@ -196,10 +192,13 @@ AGVerifyResult AGCertificateVerifier::verifyDNSName(const std::string &dnsName, 
  * are allowed to use SHA1).
  *
  * @param store CA store
+ * @param dnsName Host name
  * @param certChain Certificate chain
+ * @param basicCheckOnly Don't perforn sha1 deprecation and HPKP checks
  * @return Verify result
  */
-AGVerifyResult AGCertificateVerifier::verifyChain(X509_STORE *store, STACK_OF(X509) *certChain) {
+AGVerifyResult AGCertificateVerifier::verifyChain(X509_STORE *store, STACK_OF(X509) *certChain,
+                                                  const std::string &dnsName, bool basicCheckOnly) {
     // Initialize cert store context
     X509_STORE_CTX *ctx = X509_STORE_CTX_new();
     if (!X509_STORE_CTX_init(ctx, store, NULL, NULL)) {
@@ -235,7 +234,17 @@ AGVerifyResult AGCertificateVerifier::verifyChain(X509_STORE *store, STACK_OF(X5
         }
     }
 
-    AGVerifyResult res = verifyDeprecatedSha1Signature(ctx);
+    // Other checks that must be done on verification context's chain
+    AGVerifyResult res = AGVerifyResult::OK;
+    if (!basicCheckOnly) {
+        // Deprecated SHA1
+        res = verifyDeprecatedSha1Signature(ctx);
+
+        // HPKP pins
+        if (res.isOk()) {
+            res = verifyHttpPublicKeyPins(dnsName, ctx);
+        }
+    }
 
     X509_STORE_CTX_free(ctx);
     return res;
@@ -248,12 +257,13 @@ AGVerifyResult AGCertificateVerifier::verifyChain(X509_STORE *store, STACK_OF(X5
  * @see AGCertificateVerifier#updateHPKPInfo
  *
  * @param dnsName Hostname
- * @param certChain Certificate chain
+ * @param ctx X509 store verify context
  * @return Verify result
  */
-AGVerifyResult AGCertificateVerifier::verifyHttpPublicKeyPins(const std::string &dnsName, STACK_OF(X509) *certChain) {
+AGVerifyResult AGCertificateVerifier::verifyHttpPublicKeyPins(const std::string &dnsName, X509_STORE_CTX *ctx) {
     // Don't check pins for local root CA
-    if (!verifyChain(mozillaCaStore, certChain).isOk()) {
+    STACK_OF(X509) *certChain = X509_STORE_CTX_get_chain(ctx);
+    if (!verifyChain(mozillaCaStore, certChain, "", true).isOk()) {
         return AGVerifyResult(AGVerifyResult::OK, "Certificate passed basic checks but issued by non-standard CA, skipping pinning test");
     }
 
