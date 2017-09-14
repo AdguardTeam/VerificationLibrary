@@ -192,8 +192,8 @@ AGVerifyResult AGCertificateVerifier::verifyDNSName(const std::string &dnsName, 
  * are allowed to use SHA1).
  *
  * @param store CA store
- * @param dnsName Host name
  * @param certChain Certificate chain
+ * @param dnsName Host name
  * @param basicCheckOnly Don't perforn sha1 deprecation and HPKP checks
  * @return Verify result
  */
