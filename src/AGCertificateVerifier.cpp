@@ -217,8 +217,9 @@ AGVerifyResult AGCertificateVerifier::verifyChain(X509_STORE *store, STACK_OF(X5
         int depth = X509_STORE_CTX_get_error_depth(ctx);
         if (depth < sk_X509_num(X509_STORE_CTX_get_chain(ctx))) {
             X509 *cert = sk_X509_value(X509_STORE_CTX_get_chain(ctx), depth);
-            const char *subject = X509_NAME_oneline(X509_get_subject_name(cert), NULL, 0);
+            char *subject = X509_NAME_oneline(X509_get_subject_name(cert), NULL, 0);
             messageStart = std::string() + "Error verifying certificate \"" + subject + "\": ";
+            OPENSSL_free(subject);
         }
         X509_STORE_CTX_free(ctx);
         switch (error) {
